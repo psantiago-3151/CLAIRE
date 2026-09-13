@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jarvis</title>
+  <style>
+    :root {
+      --bg: #101218;
+      --panel: #181c26;
+      --ink: #ece7dc;
+      --muted: #9a9386;
+      --line: #2a3140;
+      --brass: #d4a574;
+      --brass-dim: #8a6a45;
+      --go: #d4a574;
+      --stop: #c45c4a;
+      --ok: #7dba8a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); }
+    body {
+      font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      padding: 24px 16px 48px;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-family: Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      margin: 0;
+      font-size: 2rem;
+    }
+    .header-tools {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+    .lede {
+      color: var(--muted);
+      margin: 0 0 24px;
+    }
+    .badge {
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    .badge.on { color: var(--ok); border-color: #2f5a3a; }
+    .badge.warn { color: var(--brass); border-color: var(--brass-dim); }
+    .badge.hazard {
+      color: #1a140c;
+      background: #e8b44a;
+      border-color: #c45c4a;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      animation: hazard-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes hazard-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(232, 180, 74, 0.55); }
+      50% { box-shadow: 0 0 0 6px rgba(232, 180, 74, 0); }
+    }
+    .notice {
+      display: none;
+      margin: 0 0 20px;
+      padding: 12px 14px;
+      border: 1px solid var(--brass-dim);
+      background: var(--panel);
+      border-radius: 10px;
+      color: var(--brass);
+      font-size: 0.95rem;
+    }
+    .notice.show { display: block; }
+    .notice.hazard {
+      border: 2px solid #e8b44a;
+      background: #2a1c0c;
+      color: #f5d78a;
+      font-size: 1.05rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    .notice.hazard .haz-title {
+      font-size: 1.15rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #e8b44a;
+      margin-bottom: 8px;
+    }
+    .notice code {
+      display: block;
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 0.88rem;
+    }
+    body.ollama-down h1,
+    body.ollama-down #badge {
+      opacity: 0.35;
+    }
+    body.ollama-down #app-body {
+      opacity: 0.28;
+      filter: grayscale(0.7);
+      pointer-events: none;
+      user-select: none;
+    }
+    .hamburger {
+      width: 42px;
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 10px 11px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+    .hamburger span {
+      display: block;
+      height: 2px;
+      background: var(--ink);
+      border-radius: 1px;
+    }
+    .hamburger[aria-expanded="true"] { border-color: var(--brass-dim); }
+    .menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 220px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      z-index: 20;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .menu[hidden] { display: none; }
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-size: 0.92rem;
+      cursor: pointer;
+    }
+    .menu-item + .menu-item { margin-top: 10px; }
+    button.menu-item {
+      width: 100%;
+      border: 1px solid var(--stop);
+      background: transparent;
+      color: #f0c2ba;
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: left;
+      font: inherit;
+    }
+    .power {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 22px 20px;
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      background: var(--go);
+      color: #1a140c;
+      margin-top: 8px;
+    }
+    .power.running {
+      background: var(--stop);
+      color: #fff8f6;
+    }
+    .power:disabled { opacity: 0.55; cursor: wait; }
+    .row {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .row button {
+      flex: 1;
+      min-width: 140px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .row button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .row button.hot { border-color: var(--stop); color: #f0c2ba; }
+    .status {
+      margin: 18px 0 0;
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .status p { margin: 0 0 6px; color: var(--muted); font-size: 0.9rem; }
+    .status .heard, .status .reply { color: var(--ink); }
+    h2 {
+      font-size: 0.82rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--brass);
+      margin: 28px 0 12px;
+      font-weight: 600;
+    }
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    label.wide { grid-column: 1 / -1; }
+    input, select {
+      background: #12151c;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+    }
+    input:focus, select:focus { outline: 2px solid var(--brass-dim); border-color: var(--brass); }
+    input:disabled, select:disabled { opacity: 0.55; }
+    a.ext {
+      color: var(--brass);
+      font-size: 0.75rem;
+      margin-left: 8px;
+    }
+    .env { color: var(--brass); font-size: 0.75rem; }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .actions[hidden] { display: none; }
+    .actions button {
+      background: var(--panel);
+      color: var(--brass);
+      border: 1px solid var(--brass-dim);
+      border-radius: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; min-height: 1.2em; }
+    .error { color: var(--stop); }
+    @media (max-width: 640px) {
+      .fields { grid-template-columns: 1fr; }
+      label.wide { grid-column: auto; }
+      h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body{% if status.ollama == false %} class="ollama-down"{% endif %}>
+  <main>
+    <header>
+      <h1>Jarvis</h1>
+      <div class="header-tools">
+        <span id="badge" class="badge">{{ "Running" if status.running else "Standby" }}</span>
+        <span id="ollama-badge" class="badge{% if status.ollama %} on{% else %} hazard{% endif %}">
+          {{ "Ollama: running" if status.ollama else "⚠ Ollama is not running ⚠" }}
+        </span>
+        <button type="button" id="menu-btn" class="hamburger" aria-label="Menu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <div id="menu" class="menu" hidden>
+          <label class="menu-item">
+            <input type="checkbox" id="admin-toggle" />
+            Admin settings
+          </label>
+          <button type="button" id="shutdown" class="menu-item">Shut down</button>
+        </div>
+      </div>
+    </header>
+    <p id="ollama-note" class="notice hazard{% if status.ollama == false %} show{% endif %}" role="alert">
+      <span class="haz-title">⚠  Ollama is not running  ⚠</span>
+      The rest of the UI is locked. Start Ollama, then this page will unlock.
+      <code>cd /Users/p-san/Projects/Jarvis && vendor/ollama/ollama serve</code>
+    </p>
+    <div id="app-body"{% if status.ollama == false %} inert{% endif %}>
+    <p class="lede">Defaults are loaded below. Change anything you want, then start.</p>
+
+    <form id="form">
+      <h2>Runtime</h2>
+      <div class="fields">
+        {% for field in runtime_fields %}
+        <label{% if field.key in wide_keys %} class="wide"{% endif %}>
+          <span>
+            {{ field.label }}
+            {% if field.env_value %}<span class="env">overridden by {{ field.env }}</span>{% endif %}
+          </span>
+          <input
+            id="{{ field.key }}"
+            name="{{ field.key }}"
+            value="{{ field.value }}"
+            placeholder="{{ field.default }}"
+            data-default="{{ field.default }}"
+            autocomplete="off"
+          />
+        </label>
+        {% endfor %}
+      </div>
+
+      <h2>Models</h2>
+      <div class="fields">
+        <label class="wide">
+          <span>
+            {{ llm_field.label }}
+            <a class="ext" href="{{ ollama_library_url }}" target="_blank" rel="noopener">Ollama library</a>
+            {% if llm_field.env_value %}<span class="env">overridden by {{ llm_field.env }}</span>{% endif %}
+          </span>
+          <select
+            id="llm_model"
+            name="llm_model"
+            data-default="{{ llm_field.default }}"
+          >
+            {% for name in llm_models %}
+            <option value="{{ name }}"{% if name == llm_field.value %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="wide">
+          <span>
+            {{ voice_field.label }}
+            <a class="ext" href="{{ hf_piper_url }}" target="_blank" rel="noopener">Hugging Face en_US voices</a>
+            {% if voice_field.env_value %}<span class="env">overridden by {{ voice_field.env }}</span>{% endif %}
+          </span>
+          <select
+            id="voice_model"
+            name="voice_model"
+            data-default="{{ voice_field.default }}"
+          >
+            {% for voice in piper_voices %}
+            <option value="{{ voice.path }}"{% if voice.path == voice_field.value %} selected{% endif %}>{{ voice.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <section id="admin-section" hidden>
+        <h2>Admin</h2>
+        <div class="fields">
+          {% for field in admin_fields %}
+          <label{% if field.key in wide_keys %} class="wide"{% endif %}>
+            <span>
+              {{ field.label }}
+              {% if field.env_value %}<span class="env">overridden by {{ field.env }}</span>{% endif %}
+            </span>
+            <input
+              id="{{ field.key }}"
+              name="{{ field.key }}"
+              value="{{ field.value }}"
+              placeholder="{{ field.default }}"
+              data-default="{{ field.default }}"
+              autocomplete="off"
+              {% if field.key == "voice_speaker" %}inputmode="numeric"{% endif %}
+              {% if field.key == "thinking_interval_secs" %}inputmode="decimal" min="3" step="0.1"{% endif %}
+              {% if field.key == "name_breath_secs" %}inputmode="decimal" min="0.05" max="2" step="0.05"{% endif %}
+            />
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+
+      <div id="form-actions" class="actions" hidden>
+        <button type="submit">Save settings</button>
+        <button type="button" id="reset">Reset defaults</button>
+      </div>
+      <p id="save-hint" class="hint"></p>
+    </form>
+
+    <button id="power" class="power{% if status.running %} running{% endif %}" type="button">
+      {{ "Stop " ~ wake_label if status.running else "Start " ~ wake_label }}
+    </button>
+    <div class="row">
+      <button id="record" type="button" disabled>Record</button>
+      <button id="interrupt" type="button" disabled>Interrupt speech</button>
+    </div>
+
+    <section class="status" aria-live="polite">
+      <p id="message">{{ status.message }}</p>
+      <p>Heard: <span class="heard" id="heard">{{ status.heard or "—" }}</span></p>
+      <p>Reply: <span class="reply" id="reply">{{ status.reply or "—" }}</span></p>
+    </section>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let running = {{ "true" if status.running else "false" }};
+    let busy = false;
+    let baseline = {};
+
+    function cap(word) {
+      const w = (word || "friday").trim();
+      return w ? w[0].toUpperCase() + w.slice(1) : "Friday";
+    }
+
+    function fieldValue(key) {
+      const el = document.querySelector(`[name="${key}"]`);
+      return el ? el.value : "";
+    }
+
+    function formValues() {
+      const values = {};
+      document.querySelectorAll("#form [name]").forEach((el) => {
+        values[el.name] = el.value;
+      });
+      return values;
+    }
+
+    const MIN_WAIT = 3;
+
+    function validateWaitSecs(values) {
+      const raw = values.thinking_interval_secs;
+      if (raw != null && raw !== "") {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error("Thinking interval must be a number");
+        if (n < MIN_WAIT) throw new Error(`Thinking interval must be at least ${MIN_WAIT} seconds`);
+      }
+      const breath = values.name_breath_secs;
+      if (breath != null && breath !== "") {
+        const b = Number(breath);
+        if (!Number.isFinite(b)) throw new Error("Name pause must be a number");
+        if (b < 0.05) throw new Error("Name pause must be at least 0.05 seconds");
+        if (b > 2) throw new Error("Name pause must be at most 2 seconds");
+      }
+    }
+
+    function isDirty() {
+      const now = formValues();
+      const keys = new Set([...Object.keys(baseline), ...Object.keys(now)]);
+      for (const key of keys) {
+        if ((now[key] || "") !== (baseline[key] || "")) return true;
+      }
+      return false;
+    }
+
+    function updateDirty() {
+      const locked = running || document.body.classList.contains("ollama-down");
+      $("form-actions").hidden = !isDirty() || locked;
+    }
+
+    function markClean() {
+      baseline = formValues();
+      updateDirty();
+    }
+
+    function powerLabel(status) {
+      const name = running ? cap(status.wake_word) : cap(fieldValue("wake_word") || status.wake_word);
+      $("power").textContent = running ? `Stop ${name}` : `Start ${name}`;
+      $("power").classList.toggle("running", running);
+    }
+
+    function setFormDisabled(on) {
+      document.querySelectorAll("#form input, #form select, #form button").forEach((el) => {
+        el.disabled = on;
+      });
+    }
+
+    function applyStatus(s) {
+      running = !!s.running;
+      busy = !!s.busy;
+      const ollamaUp = s.ollama !== false;
+      document.body.classList.toggle("ollama-down", !ollamaUp);
+      const appBody = $("app-body");
+      if (ollamaUp) appBody.removeAttribute("inert");
+      else appBody.setAttribute("inert", "");
+      $("badge").textContent = running ? "Running" : "Standby";
+      $("badge").classList.toggle("on", running);
+      $("badge").classList.remove("warn");
+      $("ollama-badge").textContent = ollamaUp ? "Ollama: running" : "⚠ Ollama is not running ⚠";
+      $("ollama-badge").classList.toggle("on", ollamaUp);
+      $("ollama-badge").classList.toggle("warn", false);
+      $("ollama-badge").classList.toggle("hazard", !ollamaUp);
+      $("ollama-note").classList.toggle("show", !ollamaUp);
+      $("admin-toggle").disabled = !ollamaUp;
+      powerLabel(s);
+      $("power").disabled = !ollamaUp || (busy && running);
+      $("record").disabled = !ollamaUp || !running || busy;
+      $("interrupt").disabled = !ollamaUp || !running;
+      $("record").textContent = s.recording ? "Stop recording" : "Record";
+      $("record").classList.toggle("hot", !!s.recording);
+      $("message").textContent = s.message || (running ? "Running" : "Standby");
+      $("heard").textContent = s.heard || "—";
+      $("reply").textContent = s.reply || "—";
+      setFormDisabled(running || !ollamaUp);
+      updateDirty();
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, Object.assign({
+        headers: { "Content-Type": "application/json" },
+      }, opts || {}));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const msg = Array.isArray(detail) ? detail.join("; ") : (detail || res.statusText);
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    function setAdmin(on) {
+      $("admin-toggle").checked = on;
+      $("admin-section").hidden = !on;
+      localStorage.setItem("jarvisAdmin", on ? "1" : "0");
+    }
+
+    $("menu-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = $("menu").hidden;
+      $("menu").hidden = !open;
+      $("menu-btn").setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("click", () => {
+      $("menu").hidden = true;
+      $("menu-btn").setAttribute("aria-expanded", "false");
+    });
+    $("menu").addEventListener("click", (e) => e.stopPropagation());
+    $("admin-toggle").addEventListener("change", () => setAdmin($("admin-toggle").checked));
+    setAdmin(localStorage.getItem("jarvisAdmin") === "1");
+
+    $("shutdown").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      $("shutdown").disabled = true;
+      $("message").classList.remove("error");
+      try {
+        await api("/api/shutdown", { method: "POST" });
+        $("message").textContent = "Shutting down";
+        $("badge").textContent = "Off";
+        $("badge").classList.remove("on");
+        $("power").disabled = true;
+        $("record").disabled = true;
+        $("interrupt").disabled = true;
+        $("menu").hidden = true;
+      } catch (err) {
+        $("shutdown").disabled = false;
+        $("message").textContent = err.message;
+        $("message").classList.add("error");
+      }
+    });
+
+    $("form").addEventListener("input", updateDirty);
+    $("form").addEventListener("change", updateDirty);
+
+    const wakeInput = $("wake_word");
+    if (wakeInput) {
+      wakeInput.addEventListener("input", () => {
+        if (!running) powerLabel({ wake_word: wakeInput.value });
+      });
+    }
+
+    $("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("save-hint").textContent = "Saving…";
+      $("save-hint").classList.remove("error");
+      try {
+        const values = formValues();
+        validateWaitSecs(values);
+        const data = await api("/api/config", {
+          method: "POST",
+          body: JSON.stringify({ values }),
+        });
+        applyStatus(data.status);
+        markClean();
+        $("save-hint").textContent = data.apply_on_restart
+          ? "Saved. Stop and start to apply."
+          : "Saved.";
+      } catch (err) {
+        $("save-hint").textContent = err.message;
+        $("save-hint").classList.add("error");
+      }
+    });
+
+    $("reset").addEventListener("click", () => {
+      document.querySelectorAll("#form [data-default]").forEach((el) => {
+        const fallback = el.getAttribute("data-default") || "";
+        if (el.tagName === "SELECT") {
+          const match = [...el.options].some((o) => o.value === fallback);
+          if (!match && fallback) {
+            const opt = document.createElement("option");
+            opt.value = fallback;
+            opt.textContent = fallback;
+            el.appendChild(opt);
+          }
+        }
+        el.value = fallback;
+      });
+      if (!running) powerLabel({ wake_word: fieldValue("wake_word") });
+      $("save-hint").textContent = "Defaults restored on the form.";
+      updateDirty();
+    });
+
+    $("power").addEventListener("click", async () => {
+      $("message").classList.remove("error");
+      try {
+        if (running) {
+          applyStatus(await api("/api/stop", { method: "POST" }));
+          return;
+        }
+        const values = formValues();
+        validateWaitSecs(values);
+        const s = await api("/api/start", {
+          method: "POST",
+          body: JSON.stringify({ values }),
+        });
+        applyStatus(s);
+        markClean();
+      } catch (err) {
+        $("message").textContent = err.message;
+        $("message").classList.add("error");
+      }
+    });
+
+    $("record").addEventListener("click", async () => {
+      try {
+        applyStatus(await api("/api/record", { method: "POST" }));
+      } catch (err) {
+        $("message").textContent = err.message;
+      }
+    });
+
+    $("interrupt").addEventListener("click", async () => {
+      try {
+        applyStatus(await api("/api/interrupt", { method: "POST" }));
+      } catch (err) {
+        $("message").textContent = err.message;
+      }
+    });
+
+    baseline = formValues();
+    applyStatus({{ status_json | safe }});
+    setInterval(async () => {
+      try { applyStatus(await api("/api/status")); } catch (_) {}
+    }, 800);
+  </script>
+</body>
+</html>
