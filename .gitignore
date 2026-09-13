@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+temp/
+memory/
+vendor/
+bin/
+models/
+*.onnx
+*.bin
+*.wav
+*.raw
