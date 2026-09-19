@@ -6,11 +6,11 @@
     },
     {
       "text": "I didn't catch the wake word. Please ask again and say {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Please address that to {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Say {name} so I know you're talking to me.",
@@ -30,7 +30,7 @@
     },
     {
       "text": "Direct your question to me, {name}, for a favor.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "I ... am ... Spartacus, I mean ... I'm {name}, address your question to me.",
@@ -54,7 +54,7 @@
     },
     {
       "text": "Please start with {name}, then your question.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "I missed the wake word. Try again with {name}.",
@@ -62,7 +62,7 @@
     },
     {
       "text": "Address me as {name} so I can help.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Say {name} first, then I'll listen.",
@@ -74,11 +74,11 @@
     },
     {
       "text": "I'm here. Call me {name} and ask again.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "One more time, please, using {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "That's not my name. Try {name}.",
@@ -90,11 +90,11 @@
     },
     {
       "text": "Close, but no cigar. The magic word is {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "You rang? Almost. Lead with {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "I answer to {name}, not vibes.",
@@ -102,19 +102,19 @@
     },
     {
       "text": "Security check failed. Password is {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Speak friend and enter. Friend is {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "I'm {name}, not hey you.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Without {name}, I'm just expensive silence.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "New phone, who dis? It's {name}.",
@@ -130,7 +130,7 @@
     },
     {
       "text": "Manners, please. My name is {name}.",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "You've got the question. I've got the name: {name}.",

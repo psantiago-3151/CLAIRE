@@ -384,7 +384,7 @@
     <p id="ollama-note" class="notice hazard{% if status.ollama == false %} show{% endif %}" role="alert">
       <span class="haz-title">⚠  Ollama is not running  ⚠</span>
       The rest of the UI is locked. Start Ollama, then this page will unlock.
-      <code>cd /Users/p-san/Projects/Jarvis && vendor/ollama/ollama serve</code>
+      <code>ollama serve</code>
     </p>
 
     <div id="app-body"{% if status.ollama == false %} inert{% endif %}>
@@ -487,17 +487,11 @@
           {% endfor %}
         </div>
         <h2>Pre-canned speech</h2>
-        <label class="wide">
-          <span>Phrase selection</span>
-          <select id="phrase_select_mode" name="phrase_select_mode" data-default="flat">
-            <option value="flat">Flat (equal odds)</option>
-            <option value="preferred">Preferred weighting</option>
-          </select>
-        </label>
-        <div id="boost-row" hidden>
+        <input type="hidden" id="phrase_select_mode" name="phrase_select_mode" value="flat" data-default="flat" />
+        <div id="boost-row">
           <label class="wide">
-            <span>Preferred mix: <strong id="boost-label">50%</strong> (50% ≈ preferred 2×; 100% = preferred only)</span>
-            <input id="preferred_boost_pct" name="preferred_boost_pct" type="range" min="0" max="100" step="5" value="50" data-default="50" />
+            <span>Preferred mix: <strong id="boost-label">0%</strong> (0% = original equal pick; 50% ≈ preferred 2×; 100% = preferred only)</span>
+            <input id="preferred_boost_pct" name="preferred_boost_pct" type="range" min="0" max="100" step="5" value="0" data-default="0" />
           </label>
         </div>
         <p class="lede">Thinking lines (while waiting on the model)</p>
@@ -613,11 +607,10 @@
     }
 
     function syncBoostUi() {
-      const mode = $("phrase_select_mode") && $("phrase_select_mode").value;
-      const row = $("boost-row");
-      if (row) row.hidden = mode !== "preferred";
       const slider = $("preferred_boost_pct");
+      const mode = $("phrase_select_mode");
       const lab = $("boost-label");
+      if (slider && mode) mode.value = Number(slider.value) > 0 ? "preferred" : "flat";
       if (slider && lab) lab.textContent = boostCaption(slider.value);
     }
 

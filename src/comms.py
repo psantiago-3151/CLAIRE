@@ -24,6 +24,12 @@ from sshkeyboard import listen_keyboard, stop_listening
 
 IS_MAC = sys.platform == "darwin"
 ROOT = Path(__file__).resolve().parent.parent
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
 
 
 def _load_conf(path: Path) -> dict:
@@ -80,7 +86,7 @@ MISSING_WAKE_PHRASES = list(_MISSING_WAKE_DEFAULTS)
 FILLER_ENTRIES = [{"text": t, "preferred": False} for t in _FILLER_DEFAULTS]
 MISSING_WAKE_ENTRIES = [{"text": t, "preferred": False} for t in _MISSING_WAKE_DEFAULTS]
 PHRASE_SELECT_MODE = "flat"
-PREFERRED_BOOST_PCT = 50.0
+PREFERRED_BOOST_PCT = 0.0
 
 
 def _normalize_entries(raw, fallback_lines: list) -> list:
@@ -187,9 +193,8 @@ def pick_phrase_entry(entries: list) -> str:
     texts = [e.get("text") for e in entries if e.get("text")]
     if not texts:
         return ""
-    mode = (PHRASE_SELECT_MODE or "flat").lower()
     boost = PREFERRED_BOOST_PCT
-    if mode != "preferred" or boost <= 0:
+    if boost <= 0:
         return pick_timed_phrase(texts)
     preferred = [e for e in entries if e.get("text") and e.get("preferred")]
     if boost >= 100:
@@ -242,10 +247,10 @@ def _load_phrase_mode():
     try:
         PREFERRED_BOOST_PCT = max(
             0.0,
-            min(100.0, float(_setting("JARVIS_PREFERRED_BOOST", "preferred_boost_pct", "50"))),
+            min(100.0, float(_setting("JARVIS_PREFERRED_BOOST", "preferred_boost_pct", "0"))),
         )
     except ValueError:
-        PREFERRED_BOOST_PCT = 50.0
+        PREFERRED_BOOST_PCT = 0.0
 
 
 def _load_wait_secs():
@@ -427,7 +432,7 @@ CONFIG_FIELDS = [
     {"key": "thinking_interval_secs", "env": "JARVIS_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
     {"key": "name_breath_secs", "env": "JARVIS_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
     {"key": "phrase_select_mode", "env": "JARVIS_PHRASE_MODE", "label": "Phrase selection", "group": "models", "ui": "admin", "default": "flat"},
-    {"key": "preferred_boost_pct", "env": "JARVIS_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "50"},
+    {"key": "preferred_boost_pct", "env": "JARVIS_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "0"},
     {"key": "wake_word", "env": "JARVIS_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "friday"},
     {"key": "record_key", "env": "JARVIS_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
     {"key": "interrupt_key", "env": "JARVIS_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
@@ -579,7 +584,7 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
         raise ValueError("phrase_select_mode must be flat or preferred")
     current["phrase_select_mode"] = mode
     try:
-        boost = float(current.get("preferred_boost_pct") or "50")
+        boost = float(current.get("preferred_boost_pct") or "0")
     except ValueError as exc:
         raise ValueError("preferred_boost_pct must be a number") from exc
     if boost < 0 or boost > 100:

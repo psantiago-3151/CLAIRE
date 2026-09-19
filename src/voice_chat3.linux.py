@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+Archival Nobara snapshot. Not used by src/web.py or src/comms.py.
+Contains old workstation paths; do not treat as the supported app.
+
 LOCAL VOICE AI – FINAL VERSION (Wake word anywhere, forgiving detection)
 * Detects wake word anywhere in full transcript
 * Raw → sox → clean WAV

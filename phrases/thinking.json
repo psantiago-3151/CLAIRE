@@ -26,11 +26,11 @@
     },
     {
       "text": "contemplating on your question!",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "give me a moment",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "One Sec.",

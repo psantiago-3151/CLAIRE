@@ -67,9 +67,21 @@ Each entry is `{"text": "...", "preferred": false}`. Mark **Preferred** in Admin
 - **Flat** (default): every line has equal odds (`time % count`).
 - **Preferred weighting:** slider 0–100. **50%** means a preferred line is heard about **2×** as often as a non-preferred one. **100%** uses preferred lines only (falls back to all if none are marked). **25%** is a 1.5× boost.
 
+New lines default to **not preferred**. Check **Preferred** on a line to boost it. The slider is **0%** by default (original equal pick). Above 0% preferred lines are chosen more often (**50%** ≈ 2×, **100%** = preferred only). Sixteen starter lines are marked preferred; add more whenever you like.
+
 `{name}` in missing-wake text becomes the wake word (with a breath pause). `...` is a pause.
 
 You can edit Admin while the assistant is running. Leaving Admin with unsaved changes asks to **store** them; they apply only after **Stop** and **Start**. A banner at the top warns when stored settings differ from the running session.
+
+## Security
+
+This app is meant to run **on your machine**, not as a public website.
+
+- Copy `.env.example` → `.env` if you need env overrides. **Never commit** `.env`, `jarvis.conf`, `memory/`, `models/`, or `bin/`.
+- The UI binds **`127.0.0.1`** by default so only you can open it. Do not set `JARVIS_UI_HOST=0.0.0.0` unless you accept that anyone on the network can start/stop the mic and the assistant.
+- There are **no cloud API keys** in this project. Do not paste OpenAI/Anthropic keys here; Ollama is local. If you add keys later, put them only in `.env`.
+- `src/voice_chat3.linux.py` is an **old snapshot** with hardcoded workstation paths. It is not used. Ignore it.
+- Model files you download have **their own licenses**. This repo’s MIT license does not cover them.
 
 ## Setup
 
@@ -80,6 +92,7 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp jarvis.conf.example jarvis.conf
+cp .env.example .env
 chmod +x scripts/download-models.sh
 ./scripts/download-models.sh
 ```

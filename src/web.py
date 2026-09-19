@@ -18,15 +18,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-import comms
+import comms  # loads .env via comms
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
-HOST = "127.0.0.1"
-PORT = 8742
+HOST = os.environ.get("JARVIS_UI_HOST", "127.0.0.1")
+PORT = int(os.environ.get("JARVIS_UI_PORT", "8742"))
 WIDE_KEYS = {"quit_phrases", "whisper_model"}
 HF_PIPER_VOICES = "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US"
 OLLAMA_LIBRARY = "https://ollama.com/library"
-OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags"
+_OLLAMA_BASE = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+if "://" not in _OLLAMA_BASE:
+    _OLLAMA_BASE = "http://" + _OLLAMA_BASE
+OLLAMA_TAGS = _OLLAMA_BASE + "/api/tags"
 
 app = FastAPI(title="Jarvis")
 templates = Jinja2Templates(directory=str(UI_DIR))
@@ -44,8 +47,7 @@ _state = {
 EMPTY_CAPTURE_WARN_AFTER = 3
 _ollama_cache = {"ok": None, "at": 0.0}
 OLLAMA_SERVE_HINT = (
-    "Ollama is not running. In a terminal, start it with: "
-    "vendor/ollama/ollama serve"
+    "Ollama is not running. In a terminal, start it with: ollama serve"
 )
 MIC_HINT = (
     "No microphone found. Plug one in, then open the hamburger → Admin "
@@ -268,7 +270,7 @@ def post_config(body: ConfigUpdate):
         "thinking": comms._load_phrase_file("thinking", comms._FILLER_DEFAULTS),
         "missing_wake": comms._load_phrase_file("missing_wake", comms._MISSING_WAKE_DEFAULTS),
         "mode": saved.get("phrase_select_mode", "flat"),
-        "preferred_boost_pct": float(saved.get("preferred_boost_pct") or 50),
+        "preferred_boost_pct": float(saved.get("preferred_boost_pct") or 0),
     }
     payload["apply_on_restart"] = _state["running"]
     return payload

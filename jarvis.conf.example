@@ -24,9 +24,9 @@ mic_device=
 thinking_interval_secs=5
 # Silence inserted before the wake word in missing-wake replies
 name_breath_secs=0.35
-# flat = equal odds; preferred = boost marked lines (50 = 2×, 100 = only preferred)
+# 0 = original equal pick; 50 = preferred ~2×; 100 = preferred only
 phrase_select_mode=flat
-preferred_boost_pct=50
+preferred_boost_pct=0
 
 # Wake word (matched anywhere in the transcript)
 wake_word=friday
