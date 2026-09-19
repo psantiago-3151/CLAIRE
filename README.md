@@ -55,21 +55,21 @@ The voice dropdown is **every `*.onnx` file in `models/piper/`**. That is not a 
 
 ## Pre-canned speech
 
-Spoken lines that are **not** from the LLM live in `phrases/`. Add or delete lines there; one phrase per line. Lines starting with `#` are comments. **Stop and Start** (or restart `web.py`) after you edit.
+Spoken lines that are **not** from the LLM live in `phrases/` as JSON, and you can edit them in the UI under **Admin → Pre-canned speech**.
 
 | File | When it is used |
 |---|---|
-| `phrases/thinking.txt` | Waiting on the model (repeating timer in Admin) |
-| `phrases/missing_wake.txt` | Transcript did not contain the wake word |
+| `phrases/thinking.json` | Waiting on the model |
+| `phrases/missing_wake.json` | Transcript did not contain the wake word |
 
-Which line is spoken is `current time in milliseconds % number of lines` — not a shuffle, but different fire times usually pick different lines.
+Each entry is `{"text": "...", "preferred": false}`. Mark **Preferred** in Admin to boost those lines.
 
-In **missing_wake.txt** only:
+- **Flat** (default): every line has equal odds (`time % count`).
+- **Preferred weighting:** slider 0–100. **50%** means a preferred line is heard about **2×** as often as a non-preferred one. **100%** uses preferred lines only (falls back to all if none are marked). **25%** is a 1.5× boost.
 
-- `{name}` becomes the wake word (with a short breath pause before it)
-- `...` is a pause for Piper
+`{name}` in missing-wake text becomes the wake word (with a breath pause). `...` is a pause.
 
-Do not put `{name}` in thinking lines. Keep phrases short; they play while the user is waiting or being asked to retry. Empty files fall back to a couple of built-in defaults.
+You can edit Admin while the assistant is running. Leaving Admin with unsaved changes asks to **store** them; they apply only after **Stop** and **Start**. A banner at the top warns when stored settings differ from the running session.
 
 ## Setup
 
@@ -169,8 +169,8 @@ If Record is silent, set **Microphone device** in Admin (`default`, `pulse`, `pl
 | `src/voice_chat3.py` | Wrapper for `comms.main()` |
 | `jarvis.conf.example` | Settings template |
 | `scripts/download-models.sh` | Whisper + default Piper voice |
-| `phrases/thinking.txt` | Extra “thinking…” lines (add your own) |
-| `phrases/missing_wake.txt` | Extra missing-wake-word lines (`{name}` = wake word) |
+| `phrases/thinking.json` | Thinking lines (edit in Admin) |
+| `phrases/missing_wake.json` | Missing-wake lines (`{name}` = wake word) |
 | `memory/` | Session JSON (local only) |
 | `models/` | Whisper + Piper files (local only) |
 | `bin/whisper-cli` | You provide this binary |

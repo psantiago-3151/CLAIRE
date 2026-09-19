@@ -77,34 +77,141 @@ _MISSING_WAKE_DEFAULTS = [
 ]
 FILLER_PHRASES = list(_FILLER_DEFAULTS)
 MISSING_WAKE_PHRASES = list(_MISSING_WAKE_DEFAULTS)
+FILLER_ENTRIES = [{"text": t, "preferred": False} for t in _FILLER_DEFAULTS]
+MISSING_WAKE_ENTRIES = [{"text": t, "preferred": False} for t in _MISSING_WAKE_DEFAULTS]
+PHRASE_SELECT_MODE = "flat"
+PREFERRED_BOOST_PCT = 50.0
 
 
-def _load_phrase_lines(path: Path, fallback: list) -> list:
+def _normalize_entries(raw, fallback_lines: list) -> list:
+    entries = []
+    if isinstance(raw, dict):
+        raw = raw.get("entries") or []
+    if not isinstance(raw, list):
+        raw = []
+    for item in raw:
+        if isinstance(item, str):
+            text = item.strip()
+            preferred = False
+        elif isinstance(item, dict):
+            text = str(item.get("text") or "").strip()
+            preferred = bool(item.get("preferred"))
+        else:
+            continue
+        if text:
+            entries.append({"text": text, "preferred": preferred})
+    if entries:
+        return entries
+    return [{"text": t, "preferred": False} for t in fallback_lines]
+
+
+def _load_phrase_file(stem: str, fallback_lines: list) -> list:
+    json_path = PHRASES_DIR / f"{stem}.json"
+    txt_path = PHRASES_DIR / f"{stem}.txt"
+    if json_path.is_file():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = []
+        return _normalize_entries(data, fallback_lines)
     try:
-        text = path.read_text(encoding="utf-8")
+        text = txt_path.read_text(encoding="utf-8")
     except OSError:
-        return list(fallback)
+        return [{"text": t, "preferred": False} for t in fallback_lines]
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         lines.append(line)
-    return lines or list(fallback)
+    return _normalize_entries(lines, fallback_lines)
 
 
 def _load_phrases():
     global FILLER_PHRASES, MISSING_WAKE_PHRASES
-    FILLER_PHRASES = _load_phrase_lines(PHRASES_DIR / "thinking.txt", _FILLER_DEFAULTS)
-    MISSING_WAKE_PHRASES = _load_phrase_lines(
-        PHRASES_DIR / "missing_wake.txt", _MISSING_WAKE_DEFAULTS
+    global FILLER_ENTRIES, MISSING_WAKE_ENTRIES
+    FILLER_ENTRIES = _load_phrase_file("thinking", _FILLER_DEFAULTS)
+    MISSING_WAKE_ENTRIES = _load_phrase_file("missing_wake", _MISSING_WAKE_DEFAULTS)
+    FILLER_PHRASES = [e["text"] for e in FILLER_ENTRIES]
+    MISSING_WAKE_PHRASES = [e["text"] for e in MISSING_WAKE_ENTRIES]
+
+
+def save_phrase_file(stem: str, entries: list):
+    PHRASES_DIR.mkdir(parents=True, exist_ok=True)
+    clean = _normalize_entries(entries, [])
+    if not clean:
+        raise ValueError(f"{stem} needs at least one phrase")
+    path = PHRASES_DIR / f"{stem}.json"
+    path.write_text(
+        json.dumps({"entries": clean}, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
+
+
+def save_phrases(payload: dict, *, apply: bool = True):
+    if "thinking" in payload:
+        save_phrase_file("thinking", payload["thinking"])
+    if "missing_wake" in payload:
+        save_phrase_file("missing_wake", payload["missing_wake"])
+    if apply:
+        _load_phrases()
+
+
+def phrases_payload() -> dict:
+    return {
+        "thinking": list(FILLER_ENTRIES),
+        "missing_wake": list(MISSING_WAKE_ENTRIES),
+        "mode": PHRASE_SELECT_MODE,
+        "preferred_boost_pct": PREFERRED_BOOST_PCT,
+    }
+
+
+def disk_fingerprint() -> str:
+    thinking = _load_phrase_file("thinking", _FILLER_DEFAULTS)
+    wake = _load_phrase_file("missing_wake", _MISSING_WAKE_DEFAULTS)
+    blob = {
+        "conf": file_config(),
+        "thinking": thinking,
+        "missing_wake": wake,
+    }
+    return json.dumps(blob, sort_keys=True, ensure_ascii=False)
 
 
 def pick_timed_phrase(phrases) -> str:
     if not phrases:
         return ""
     return phrases[int(time.time() * 1000) % len(phrases)]
+
+
+def pick_phrase_entry(entries: list) -> str:
+    texts = [e.get("text") for e in entries if e.get("text")]
+    if not texts:
+        return ""
+    mode = (PHRASE_SELECT_MODE or "flat").lower()
+    boost = PREFERRED_BOOST_PCT
+    if mode != "preferred" or boost <= 0:
+        return pick_timed_phrase(texts)
+    preferred = [e for e in entries if e.get("text") and e.get("preferred")]
+    if boost >= 100:
+        pool = preferred or entries
+        return pick_timed_phrase([e["text"] for e in pool if e.get("text")])
+    weight_pref = 1.0 + (float(boost) / 50.0)
+    weighted = []
+    for e in entries:
+        text = e.get("text")
+        if not text:
+            continue
+        weighted.append((text, weight_pref if e.get("preferred") else 1.0))
+    total = sum(w for _, w in weighted)
+    if total <= 0:
+        return pick_timed_phrase(texts)
+    cursor = (time.time() * 1000) % total
+    acc = 0.0
+    for text, weight in weighted:
+        acc += weight
+        if cursor < acc:
+            return text
+    return weighted[-1][0]
 
 
 BREATH_MARK = "<<<breath>>>"
@@ -115,7 +222,7 @@ BREATH_SECS = 0.35
 
 def missing_wake_reply() -> tuple:
     name = AI_NAME.capitalize()
-    template = pick_timed_phrase(MISSING_WAKE_PHRASES)
+    template = pick_phrase_entry(MISSING_WAKE_ENTRIES)
     display = template.replace("{name}", name)
     spoken = template.replace("{name}", f"{BREATH_MARK}{name}")
     return display, spoken
@@ -126,6 +233,19 @@ def _secs(env_name: str, conf_key: str, default: str) -> float:
         return max(MIN_WAIT_SECS, float(_setting(env_name, conf_key, default)))
     except ValueError:
         return max(MIN_WAIT_SECS, float(default))
+
+
+def _load_phrase_mode():
+    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT
+    mode = _setting("JARVIS_PHRASE_MODE", "phrase_select_mode", "flat").lower()
+    PHRASE_SELECT_MODE = mode if mode in ("flat", "preferred") else "flat"
+    try:
+        PREFERRED_BOOST_PCT = max(
+            0.0,
+            min(100.0, float(_setting("JARVIS_PREFERRED_BOOST", "preferred_boost_pct", "50"))),
+        )
+    except ValueError:
+        PREFERRED_BOOST_PCT = 50.0
 
 
 def _load_wait_secs():
@@ -290,6 +410,7 @@ NEW_SESSION_PHRASE = _setting(
     "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
 ).lower()
 _load_wait_secs()
+_load_phrase_mode()
 _load_phrases()
 WAKE_PREFIXES = ["hey", "ok", "okay", "please", "yo", "hi", "hello"]
 
@@ -305,6 +426,8 @@ CONFIG_FIELDS = [
     {"key": "mic_device", "env": "JARVIS_MIC_DEVICE", "label": "Microphone device (Linux arecord; empty = auto)", "group": "models", "ui": "admin", "default": ""},
     {"key": "thinking_interval_secs", "env": "JARVIS_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
     {"key": "name_breath_secs", "env": "JARVIS_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
+    {"key": "phrase_select_mode", "env": "JARVIS_PHRASE_MODE", "label": "Phrase selection", "group": "models", "ui": "admin", "default": "flat"},
+    {"key": "preferred_boost_pct", "env": "JARVIS_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "50"},
     {"key": "wake_word", "env": "JARVIS_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "friday"},
     {"key": "record_key", "env": "JARVIS_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
     {"key": "interrupt_key", "env": "JARVIS_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
@@ -335,6 +458,9 @@ mic_device={mic_device}
 thinking_interval_secs={thinking_interval_secs}
 # Silence inserted before the wake word in missing-wake replies
 name_breath_secs={name_breath_secs}
+# flat = equal odds; preferred = boost marked lines (0–100, 50 = 2×, 100 = only preferred)
+phrase_select_mode={phrase_select_mode}
+preferred_boost_pct={preferred_boost_pct}
 
 # Wake word (matched anywhere in the transcript)
 wake_word={wake_word}
@@ -355,6 +481,7 @@ def reload_settings():
     global PIPER_BIN, MEMORY_DIR, MIC_DEVICE, AI_NAME, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
     global QUIT_PHRASES, NEW_SESSION_PHRASE, CURRENT_FILE
     global THINKING_INTERVAL_SECS, BREATH_SECS
+    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT
     CONF = _load_conf(CONF_PATH)
     LLM_MODEL = _setting("JARVIS_LLM_MODEL", "llm_model", "qwen2.5:7b")
     VOICE_MODEL = _setting(
@@ -405,6 +532,7 @@ def reload_settings():
         "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
     ).lower()
     _load_wait_secs()
+    _load_phrase_mode()
     _load_phrases()
     CURRENT_FILE = os.path.join(MEMORY_DIR, "current.json")
 
@@ -433,7 +561,7 @@ def config_payload() -> dict:
     return {"fields": fields, "wake_word": wake.lower()}
 
 
-def save_config(updates: dict) -> dict:
+def save_config(updates: dict, *, apply: bool = True) -> dict:
     current = file_config()
     for key, value in updates.items():
         if key not in _FIELD_KEYS:
@@ -446,11 +574,23 @@ def save_config(updates: dict) -> dict:
     except ValueError as exc:
         raise ValueError("voice_speaker must be an integer") from exc
     _validate_wait_secs(current)
+    mode = (current.get("phrase_select_mode") or "flat").lower()
+    if mode not in ("flat", "preferred"):
+        raise ValueError("phrase_select_mode must be flat or preferred")
+    current["phrase_select_mode"] = mode
+    try:
+        boost = float(current.get("preferred_boost_pct") or "50")
+    except ValueError as exc:
+        raise ValueError("preferred_boost_pct must be a number") from exc
+    if boost < 0 or boost > 100:
+        raise ValueError("preferred_boost_pct must be between 0 and 100")
+    current["preferred_boost_pct"] = f"{boost:g}"
     for key in ("record_key", "interrupt_key", "quit_key"):
         current[key] = current[key].lower()
     current["wake_word"] = current["wake_word"].lower()
     CONF_PATH.write_text(CONF_TEMPLATE.format(**current), encoding="utf-8")
-    reload_settings()
+    if apply:
+        reload_settings()
     return current
 
 
@@ -929,7 +1069,7 @@ class Comms:
         filler = {"thread": None}
 
         def pick_phrase() -> str:
-            return pick_timed_phrase(FILLER_PHRASES)
+            return pick_phrase_entry(FILLER_ENTRIES)
 
         def play_filler(text: str):
             if done.is_set():

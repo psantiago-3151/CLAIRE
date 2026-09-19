@@ -1,0 +1,144 @@
+{
+  "entries": [
+    {
+      "text": "I did not detect the wake word in your request, please ask your request again addressing it to {name}",
+      "preferred": false
+    },
+    {
+      "text": "I didn't catch the wake word. Please ask again and say {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Please address that to {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Say {name} so I know you're talking to me.",
+      "preferred": false
+    },
+    {
+      "text": "I need you to include {name} in your request.",
+      "preferred": false
+    },
+    {
+      "text": "Say my name, Say my name, ... {name}",
+      "preferred": false
+    },
+    {
+      "text": "Call me by my title, ... {name}",
+      "preferred": false
+    },
+    {
+      "text": "Direct your question to me, {name}, for a favor.",
+      "preferred": false
+    },
+    {
+      "text": "I ... am ... Spartacus, I mean ... I'm {name}, address your question to me.",
+      "preferred": false
+    },
+    {
+      "text": "Address your questions to me, {name}, please",
+      "preferred": false
+    },
+    {
+      "text": "Please, ask me directly... using my surname is {name}",
+      "preferred": false
+    },
+    {
+      "text": "We can't come to the phone, because you identify me, {name}, in your message.",
+      "preferred": false
+    },
+    {
+      "text": "I only answer when you say {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Please start with {name}, then your question.",
+      "preferred": false
+    },
+    {
+      "text": "I missed the wake word. Try again with {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Address me as {name} so I can help.",
+      "preferred": false
+    },
+    {
+      "text": "Say {name} first, then I'll listen.",
+      "preferred": false
+    },
+    {
+      "text": "To get my attention, include {name} in your request.",
+      "preferred": false
+    },
+    {
+      "text": "I'm here. Call me {name} and ask again.",
+      "preferred": false
+    },
+    {
+      "text": "One more time, please, using {name}.",
+      "preferred": false
+    },
+    {
+      "text": "That's not my name. Try {name}.",
+      "preferred": false
+    },
+    {
+      "text": "I'm not a mind reader. Say {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Close, but no cigar. The magic word is {name}.",
+      "preferred": false
+    },
+    {
+      "text": "You rang? Almost. Lead with {name}.",
+      "preferred": false
+    },
+    {
+      "text": "I answer to {name}, not vibes.",
+      "preferred": false
+    },
+    {
+      "text": "Security check failed. Password is {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Speak friend and enter. Friend is {name}.",
+      "preferred": false
+    },
+    {
+      "text": "I'm {name}, not hey you.",
+      "preferred": false
+    },
+    {
+      "text": "Without {name}, I'm just expensive silence.",
+      "preferred": false
+    },
+    {
+      "text": "New phone, who dis? It's {name}.",
+      "preferred": false
+    },
+    {
+      "text": "That's cute. Now say {name}.",
+      "preferred": false
+    },
+    {
+      "text": "I heard you. I just didn't hear {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Manners, please. My name is {name}.",
+      "preferred": false
+    },
+    {
+      "text": "You've got the question. I've got the name: {name}.",
+      "preferred": false
+    },
+    {
+      "text": "Open sesame is retired. We use {name} now.",
+      "preferred": false
+    }
+  ]
+}

@@ -39,6 +39,7 @@ _state = {
     "message": "Standby",
     "alert": None,
     "empty_captures": 0,
+    "applied_fingerprint": "",
 }
 EMPTY_CAPTURE_WARN_AFTER = 3
 _ollama_cache = {"ok": None, "at": 0.0}
@@ -59,6 +60,7 @@ MIC_CAPTURE_HINT = (
 
 class ConfigUpdate(BaseModel):
     values: dict = {}
+    phrases: dict = {}
 
 
 def _wake_label(word: str) -> str:
@@ -109,6 +111,11 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
         "reply": _state["reply"],
         "message": _state["message"],
         "alert": _state.get("alert"),
+        "pending_restart": bool(
+            _state["running"]
+            and _state.get("applied_fingerprint")
+            and comms.disk_fingerprint() != _state.get("applied_fingerprint")
+        ),
         "record_key": comms.RECORD_KEY,
         "interrupt_key": comms.INTERRUPT_KEY,
         "quit_key": comms.QUIT_KEY,
@@ -226,6 +233,8 @@ def _page_context(request: Request) -> dict:
             "default": "",
             "env_value": "",
         },
+        "phrases": comms.phrases_payload(),
+        "phrases_json": json.dumps(comms.phrases_payload()),
     }
 
 
@@ -238,19 +247,29 @@ def index(request: Request):
 def get_config():
     payload = comms.config_payload()
     payload["status"] = _snapshot(fresh_ollama=True)
+    payload["phrases"] = comms.phrases_payload()
     return payload
 
 
 @app.post("/api/config")
 def post_config(body: ConfigUpdate):
+    apply = not _state["running"]
     try:
-        saved = comms.save_config(body.values)
+        saved = comms.save_config(body.values, apply=apply)
+        if body.phrases:
+            comms.save_phrases(body.phrases, apply=apply)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload = comms.config_payload()
     payload["saved"] = saved
     payload["status"] = _snapshot()
     payload["mic_devices"] = comms.list_microphones()
+    payload["phrases"] = {
+        "thinking": comms._load_phrase_file("thinking", comms._FILLER_DEFAULTS),
+        "missing_wake": comms._load_phrase_file("missing_wake", comms._MISSING_WAKE_DEFAULTS),
+        "mode": saved.get("phrase_select_mode", "flat"),
+        "preferred_boost_pct": float(saved.get("preferred_boost_pct") or 50),
+    }
     payload["apply_on_restart"] = _state["running"]
     return payload
 
@@ -289,6 +308,7 @@ def start_assistant(body: Optional[ConfigUpdate] = None):
         _state["heard"] = ""
         _state["reply"] = ""
         _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
+        _state["applied_fingerprint"] = comms.disk_fingerprint()
     return _snapshot()
 
 

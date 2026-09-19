@@ -317,6 +317,39 @@
       border: 1px solid var(--line);
       color: var(--ink);
     }
+    .pending {
+      display: none;
+      margin: 0 0 16px;
+      padding: 10px 14px;
+      border: 1px solid var(--brass-dim);
+      background: var(--panel);
+      border-radius: 10px;
+      color: var(--brass);
+      font-size: 0.92rem;
+    }
+    .pending.show { display: block; }
+    .phrase-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+    .phrase-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .phrase-row input[type="text"] { width: 100%; }
+    .pref-lab { font-size: 0.78rem; color: var(--muted); display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+    .phrase-del {
+      background: var(--panel);
+      color: #f0c2ba;
+      border: 1px solid var(--stop);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .add-row { display: flex; gap: 8px; margin-bottom: 18px; }
+    .add-row input { flex: 1; }
+    .add-row button, #boost-row { font: inherit; }
+    #boost-row { margin: 8px 0 18px; }
+    #boost-row input[type="range"] { width: 100%; }
     @media (max-width: 640px) {
       .fields { grid-template-columns: 1fr; }
       label.wide { grid-column: auto; }
@@ -355,6 +388,9 @@
     </p>
 
     <div id="app-body"{% if status.ollama == false %} inert{% endif %}>
+    <p id="pending-note" class="pending{% if status.pending_restart %} show{% endif %}" role="status">
+      Settings have been modified. Stop and Start the assistant to apply them.
+    </p>
     <p class="lede">Defaults are loaded below. Change anything you want, then start.</p>
 
     <form id="form">
@@ -419,6 +455,8 @@
         <h2>Admin</h2>
         <div class="fields">
           {% for field in admin_fields %}
+          {% if field.key in ("phrase_select_mode", "preferred_boost_pct") %}
+          {% else %}
           <label{% if field.key in wide_keys or field.key == "mic_device" %} class="wide"{% endif %}>
             <span>
               {{ field.label }}
@@ -445,7 +483,34 @@
             />
             {% endif %}
           </label>
+          {% endif %}
           {% endfor %}
+        </div>
+        <h2>Pre-canned speech</h2>
+        <label class="wide">
+          <span>Phrase selection</span>
+          <select id="phrase_select_mode" name="phrase_select_mode" data-default="flat">
+            <option value="flat">Flat (equal odds)</option>
+            <option value="preferred">Preferred weighting</option>
+          </select>
+        </label>
+        <div id="boost-row" hidden>
+          <label class="wide">
+            <span>Preferred mix: <strong id="boost-label">50%</strong> (50% ≈ preferred 2×; 100% = preferred only)</span>
+            <input id="preferred_boost_pct" name="preferred_boost_pct" type="range" min="0" max="100" step="5" value="50" data-default="50" />
+          </label>
+        </div>
+        <p class="lede">Thinking lines (while waiting on the model)</p>
+        <div id="thinking-list" class="phrase-list"></div>
+        <div class="add-row">
+          <input id="thinking-new" type="text" placeholder="Add a thinking line" autocomplete="off" />
+          <button type="button" id="thinking-add">Add</button>
+        </div>
+        <p class="lede">Missing wake-word lines. Use <code>{name}</code> for the wake word.</p>
+        <div id="wake-list" class="phrase-list"></div>
+        <div class="add-row">
+          <input id="wake-new" type="text" placeholder="Add a missing-wake line" autocomplete="off" />
+          <button type="button" id="wake-add">Add</button>
         </div>
       </section>
 
@@ -471,6 +536,20 @@
     </section>
     </div>
   </main>
+  <div id="admin-leave" class="modal-back" hidden role="dialog" aria-labelledby="admin-leave-title">
+    <div class="modal">
+      <h3 id="admin-leave-title">Store admin changes?</h3>
+      <p>
+        The assistant is running. Stored settings will not apply until you Stop
+        and Start. Confirm to save to disk, or discard to keep the previous files.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="primary" id="admin-leave-save">Store (apply on restart)</button>
+        <button type="button" class="ghost" id="admin-leave-discard">Discard</button>
+        <button type="button" class="ghost" id="admin-leave-cancel">Keep editing</button>
+      </div>
+    </div>
+  </div>
   <div id="mic-alert" class="modal-back" hidden role="dialog" aria-labelledby="mic-alert-title">
     <div class="modal">
       <h3 id="mic-alert-title">⚠ Nothing captured</h3>
@@ -490,6 +569,8 @@
     let running = {{ "true" if status.running else "false" }};
     let busy = false;
     let baseline = {};
+    let baselinePhrases = "";
+    let loadedPhrases = {{ phrases_json | safe }};
 
     function cap(word) {
       const w = (word || "friday").trim();
@@ -504,9 +585,82 @@
     function formValues() {
       const values = {};
       document.querySelectorAll("#form [name]").forEach((el) => {
+        if (el.closest(".phrase-list") || el.id === "thinking-new" || el.id === "wake-new") return;
         values[el.name] = el.value;
       });
       return values;
+    }
+
+    function collectPhrases() {
+      function rows(listId) {
+        return [...$(listId).querySelectorAll(".phrase-row")].map((row) => ({
+          text: (row.querySelector(".phrase-text").value || "").trim(),
+          preferred: row.querySelector(".phrase-pref").checked,
+        })).filter((e) => e.text);
+      }
+      return {
+        thinking: rows("thinking-list"),
+        missing_wake: rows("wake-list"),
+      };
+    }
+
+    function boostCaption(pct) {
+      const n = Number(pct);
+      if (n >= 100) return `${n}% (preferred only)`;
+      if (n <= 0) return `${n}% (same as others)`;
+      const times = (1 + n / 50).toFixed(2).replace(/\.?0+$/, "");
+      return `${n}% (preferred ~${times}×)`;
+    }
+
+    function syncBoostUi() {
+      const mode = $("phrase_select_mode") && $("phrase_select_mode").value;
+      const row = $("boost-row");
+      if (row) row.hidden = mode !== "preferred";
+      const slider = $("preferred_boost_pct");
+      const lab = $("boost-label");
+      if (slider && lab) lab.textContent = boostCaption(slider.value);
+    }
+
+    function renderPhraseList(listId, entries) {
+      const host = $(listId);
+      host.innerHTML = "";
+      (entries || []).forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "phrase-row";
+        row.innerHTML = `
+          <input type="text" class="phrase-text" autocomplete="off" />
+          <label class="pref-lab"><input type="checkbox" class="phrase-pref" /> Preferred</label>
+          <button type="button" class="phrase-del">Remove</button>`;
+        row.querySelector(".phrase-text").value = entry.text || "";
+        row.querySelector(".phrase-pref").checked = !!entry.preferred;
+        row.querySelector(".phrase-del").addEventListener("click", () => {
+          row.remove();
+          updateDirty();
+        });
+        row.querySelector(".phrase-text").addEventListener("input", updateDirty);
+        row.querySelector(".phrase-pref").addEventListener("change", updateDirty);
+        host.appendChild(row);
+      });
+    }
+
+    function applyPhrases(p) {
+      if (!p) return;
+      if ($("phrase_select_mode") && p.mode) $("phrase_select_mode").value = p.mode;
+      if ($("preferred_boost_pct") && p.preferred_boost_pct != null) {
+        $("preferred_boost_pct").value = String(p.preferred_boost_pct);
+      }
+      renderPhraseList("thinking-list", p.thinking);
+      renderPhraseList("wake-list", p.missing_wake);
+      syncBoostUi();
+      baselinePhrases = JSON.stringify(collectPhrases());
+    }
+
+    function addPhrase(listId, inputId) {
+      const text = ($(inputId).value || "").trim();
+      if (!text) return;
+      renderPhraseList(listId, collectPhrases()[listId === "thinking-list" ? "thinking" : "missing_wake"].concat([{ text, preferred: false }]));
+      $(inputId).value = "";
+      updateDirty();
     }
 
     const MIN_WAIT = 3;
@@ -533,7 +687,7 @@
       for (const key of keys) {
         if ((now[key] || "") !== (baseline[key] || "")) return true;
       }
-      return false;
+      return JSON.stringify(collectPhrases()) !== baselinePhrases;
     }
 
     function updateDirty() {
@@ -543,6 +697,7 @@
 
     function markClean() {
       baseline = formValues();
+      baselinePhrases = JSON.stringify(collectPhrases());
       updateDirty();
     }
 
@@ -552,9 +707,13 @@
       $("power").classList.toggle("running", running);
     }
 
-    function setFormDisabled(on) {
+    function setFormDisabled(lockNonAdmin, lockAdmin) {
       document.querySelectorAll("#form input, #form select, #form button").forEach((el) => {
-        el.disabled = on;
+        if (el.closest("#admin-section") || el.closest("#form-actions")) {
+          el.disabled = !!lockAdmin;
+          return;
+        }
+        el.disabled = !!lockNonAdmin;
       });
     }
 
@@ -611,7 +770,8 @@
       $("message").textContent = s.message || (running ? "Running" : "Standby");
       $("heard").textContent = s.heard || "—";
       $("reply").textContent = s.reply || "—";
-      setFormDisabled(running || !ollamaUp);
+      setFormDisabled(running || !ollamaUp, !ollamaUp);
+      if ($("pending-note")) $("pending-note").classList.toggle("show", !!s.pending_restart);
       updateDirty();
       const alertBox = $("mic-alert");
       if (alertBox) {
@@ -642,6 +802,29 @@
       localStorage.setItem("jarvisAdmin", on ? "1" : "0");
     }
 
+    async function saveAll() {
+      const values = formValues();
+      validateWaitSecs(values);
+      const phrases = collectPhrases();
+      if (!phrases.thinking.length || !phrases.missing_wake.length) {
+        throw new Error("Keep at least one thinking line and one missing-wake line");
+      }
+      const data = await api("/api/config", {
+        method: "POST",
+        body: JSON.stringify({ values, phrases }),
+      });
+      applyStatus(data.status);
+      if (data.phrases) {
+        loadedPhrases = data.phrases;
+        applyPhrases(data.phrases);
+      }
+      markClean();
+      $("save-hint").textContent = data.apply_on_restart
+        ? "Stored. Stop and Start to apply."
+        : "Saved.";
+      return data;
+    }
+
     $("menu-btn").addEventListener("click", (e) => {
       e.stopPropagation();
       const open = $("menu").hidden;
@@ -653,8 +836,46 @@
       $("menu-btn").setAttribute("aria-expanded", "false");
     });
     $("menu").addEventListener("click", (e) => e.stopPropagation());
-    $("admin-toggle").addEventListener("change", () => setAdmin($("admin-toggle").checked));
+    $("admin-toggle").addEventListener("change", (e) => {
+      const on = e.target.checked;
+      if (!on && isDirty() && running) {
+        e.preventDefault();
+        $("admin-toggle").checked = true;
+        $("admin-leave").hidden = false;
+        return;
+      }
+      setAdmin(on);
+    });
     setAdmin(localStorage.getItem("jarvisAdmin") === "1");
+    $("admin-leave-save").addEventListener("click", async () => {
+      $("save-hint").classList.remove("error");
+      try {
+        await saveAll();
+        $("admin-leave").hidden = true;
+        setAdmin(false);
+      } catch (err) {
+        $("save-hint").textContent = err.message;
+        $("save-hint").classList.add("error");
+      }
+    });
+    $("admin-leave-discard").addEventListener("click", () => {
+      applyPhrases(loadedPhrases);
+      Object.keys(baseline).forEach((key) => {
+        const el = document.querySelector(`[name="${key}"]`);
+        if (el) el.value = baseline[key];
+      });
+      markClean();
+      $("admin-leave").hidden = true;
+      setAdmin(false);
+    });
+    $("admin-leave-cancel").addEventListener("click", () => {
+      $("admin-leave").hidden = true;
+      $("admin-toggle").checked = true;
+    });
+    if ($("phrase_select_mode")) $("phrase_select_mode").addEventListener("change", syncBoostUi);
+    if ($("preferred_boost_pct")) $("preferred_boost_pct").addEventListener("input", syncBoostUi);
+    $("thinking-add").addEventListener("click", () => addPhrase("thinking-list", "thinking-new"));
+    $("wake-add").addEventListener("click", () => addPhrase("wake-list", "wake-new"));
 
     async function dismissMicAlert() {
       $("mic-alert").hidden = true;
@@ -704,17 +925,7 @@
       $("save-hint").textContent = "Saving…";
       $("save-hint").classList.remove("error");
       try {
-        const values = formValues();
-        validateWaitSecs(values);
-        const data = await api("/api/config", {
-          method: "POST",
-          body: JSON.stringify({ values }),
-        });
-        applyStatus(data.status);
-        markClean();
-        $("save-hint").textContent = data.apply_on_restart
-          ? "Saved. Stop and start to apply."
-          : "Saved.";
+        await saveAll();
       } catch (err) {
         $("save-hint").textContent = err.message;
         $("save-hint").classList.add("error");
@@ -777,8 +988,10 @@
       }
     });
 
+    applyPhrases(loadedPhrases);
     baseline = formValues();
     applyStatus({{ status_json | safe }});
+    markClean();
     setInterval(async () => {
       try { applyStatus(await api("/api/status")); } catch (_) {}
     }, 800);
