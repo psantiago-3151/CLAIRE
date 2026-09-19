@@ -66,58 +66,39 @@ def _setting(env_name: str, conf_key: str, default: str, *, path: bool = False) 
 
 
 MIN_WAIT_SECS = 3.0
-FILLER_PHRASES = [
+PHRASES_DIR = ROOT / "phrases"
+_FILLER_DEFAULTS = [
     "Thinking...",
     "I'm in Deep thought about our interaction.",
     "Pondering about your message",
-    "calculating...",
-    "Researching...",
-    "I'm pondering...",
-    "contemplating on your question!",
-    "give me a moment",
-    "One Sec.",
-    "gathering my thoughts...",
-    "Crunching the numbers...",
-    "Hold that thought...",
-    "hmm.. Interesting",
 ]
-MISSING_WAKE_PHRASES = [
+_MISSING_WAKE_DEFAULTS = [
     "I did not detect the wake word in your request, please ask your request again addressing it to {name}",
-    "I didn't catch the wake word. Please ask again and say {name}.",
-    "Please address that to {name}.",
-    "Say {name} so I know you're talking to me.",
-    "I need you to include {name} in your request.",
-    "Say my name, Say my name, ... {name}",
-    "Call me by my title, ... {name}",
-    "Direct your question to me, {name}, for a favor.",
-    "I ... am ... Spartacus, I mean ... I'm {name}, address your question to me.",
-    "Address your questions to me, {name}, please",
-    "Please, ask me directly... using my surname is {name}",
-    "We can't come to the phone, because you identify me, {name}, in your message.",
-    "I only answer when you say {name}.",
-    "Please start with {name}, then your question.",
-    "I missed the wake word. Try again with {name}.",
-    "Address me as {name} so I can help.",
-    "Say {name} first, then I'll listen.",
-    "To get my attention, include {name} in your request.",
-    "I'm here. Call me {name} and ask again.",
-    "One more time, please, using {name}.",
-    "That's not my name. Try {name}.",
-    "I'm not a mind reader. Say {name}.",
-    "Close, but no cigar. The magic word is {name}.",
-    "You rang? Almost. Lead with {name}.",
-    "I answer to {name}, not vibes.",
-    "Security check failed. Password is {name}.",
-    "Speak friend and enter. Friend is {name}.",
-    "I'm {name}, not hey you.",
-    "Without {name}, I'm just expensive silence.",
-    "New phone, who dis? It's {name}.",
-    "That's cute. Now say {name}.",
-    "I heard you. I just didn't hear {name}.",
-    "Manners, please. My name is {name}.",
-    "You've got the question. I've got the name: {name}.",
-    "Open sesame is retired. We use {name} now.",
 ]
+FILLER_PHRASES = list(_FILLER_DEFAULTS)
+MISSING_WAKE_PHRASES = list(_MISSING_WAKE_DEFAULTS)
+
+
+def _load_phrase_lines(path: Path, fallback: list) -> list:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return list(fallback)
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(line)
+    return lines or list(fallback)
+
+
+def _load_phrases():
+    global FILLER_PHRASES, MISSING_WAKE_PHRASES
+    FILLER_PHRASES = _load_phrase_lines(PHRASES_DIR / "thinking.txt", _FILLER_DEFAULTS)
+    MISSING_WAKE_PHRASES = _load_phrase_lines(
+        PHRASES_DIR / "missing_wake.txt", _MISSING_WAKE_DEFAULTS
+    )
 
 
 def pick_timed_phrase(phrases) -> str:
@@ -309,6 +290,7 @@ NEW_SESSION_PHRASE = _setting(
     "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
 ).lower()
 _load_wait_secs()
+_load_phrases()
 WAKE_PREFIXES = ["hey", "ok", "okay", "please", "yo", "hi", "hello"]
 
 CONF_PATH = ROOT / "jarvis.conf"
@@ -423,6 +405,7 @@ def reload_settings():
         "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
     ).lower()
     _load_wait_secs()
+    _load_phrases()
     CURRENT_FILE = os.path.join(MEMORY_DIR, "current.json")
 
 

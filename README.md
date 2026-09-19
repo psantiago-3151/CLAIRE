@@ -53,6 +53,24 @@ The voice dropdown is **every `*.onnx` file in `models/piper/`**. That is not a 
 
 `scripts/download-models.sh` only fetches **one** example Whisper file and **one** example Piper voice so the folders exist. Replace them whenever you like.
 
+## Pre-canned speech
+
+Spoken lines that are **not** from the LLM live in `phrases/`. Add or delete lines there; one phrase per line. Lines starting with `#` are comments. **Stop and Start** (or restart `web.py`) after you edit.
+
+| File | When it is used |
+|---|---|
+| `phrases/thinking.txt` | Waiting on the model (repeating timer in Admin) |
+| `phrases/missing_wake.txt` | Transcript did not contain the wake word |
+
+Which line is spoken is `current time in milliseconds % number of lines` — not a shuffle, but different fire times usually pick different lines.
+
+In **missing_wake.txt** only:
+
+- `{name}` becomes the wake word (with a short breath pause before it)
+- `...` is a pause for Piper
+
+Do not put `{name}` in thinking lines. Keep phrases short; they play while the user is waiting or being asked to retry. Empty files fall back to a couple of built-in defaults.
+
 ## Setup
 
 ```bash
@@ -151,6 +169,8 @@ If Record is silent, set **Microphone device** in Admin (`default`, `pulse`, `pl
 | `src/voice_chat3.py` | Wrapper for `comms.main()` |
 | `jarvis.conf.example` | Settings template |
 | `scripts/download-models.sh` | Whisper + default Piper voice |
+| `phrases/thinking.txt` | Extra “thinking…” lines (add your own) |
+| `phrases/missing_wake.txt` | Extra missing-wake-word lines (`{name}` = wake word) |
 | `memory/` | Session JSON (local only) |
 | `models/` | Whisper + Piper files (local only) |
 | `bin/whisper-cli` | You provide this binary |
