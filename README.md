@@ -21,17 +21,37 @@ Windows is not supported yet.
 
 Large files (Ollama weights, Whisper `.bin`, Piper `.onnx`, `whisper-cli`) are **not** in git. You download them and drop them in place.
 
-## Warnings: you bring the models
+## Warnings
 
-Jarvis does **not** ship or endorse a specific LLM, Whisper checkpoint, or Piper voice as “the” assistant. It only wires **whatever you install** into a pick-list after download.
+Jarvis does **not** ship LLMs, Whisper weights, or Piper voices. It only lists **what you already downloaded** so you can pick one. Combinations are untested. Licenses of those files are **not** this repo’s MIT license — read each model card.
 
-- **Ollama / LLM:** `ollama pull <name>`. The UI lists models Ollama already has. Any chat/instruct model *might* work; many will not (too slow, too large, wrong template, no English, “thinking” models that ramble). RAM, license, and quality are yours to judge. There are **no token fees** for local Ollama, but a 70B pull can freeze a small machine.
-- **Piper / TTS:** put `*.onnx` and the matching `*.onnx.json` in `models/piper/`. The dropdown is “files in that folder,” not a curated voice store. Only [Piper](https://huggingface.co/rhasspy/piper-voices) ONNX voices are supported — not every Hugging Face TTS repo. Multi-speaker voices need a valid **speaker id**. A bad file will fail at speak-time.
-- **Whisper / STT:** `whisper-cli` plus a **whisper.cpp** `ggml-*.bin` in `models/whisper/` (default path in config). Other STT stacks will not load. `base.en` is a starting point, not a guarantee for every accent or language.
-- **Defaults** (`qwen2.5:7b`, `ggml-base.en.bin`, `en_US-libritts_r-medium`) are **examples** so a first run can work. Replace them. The project will not update or support every combination you choose.
-- **Licenses** of models are separate from this repo’s MIT license. Read the model card before you redistribute a voice or weight.
+### Ollama (required)
 
-`scripts/download-models.sh` only fetches one Whisper file and one Piper voice so the folders exist. After that, you pick in the UI.
+Without a running Ollama server, **Start is disabled** and the UI stays locked.
+
+- Install from [ollama.com](https://ollama.com). This repo’s `vendor/ollama/` is **not** what clones get.
+- You must run `ollama serve` so the API is on **`127.0.0.1:11434`**. A different host/port will look like “Ollama is not running.”
+- Pull at least one **chat/instruct** model before Start, e.g. `ollama pull qwen2.5:7b`. The dropdown is `ollama list`, nothing more.
+- **Hardware:** a 7B-class model wants on the order of **8 GB+ RAM** free; 14B needs more; 70B can lock up a laptop. Disk for the pull is several GB. Slow models make the “thinking…” fillers fire often.
+- Embedding-only, vision-only, or “reasoning/thinking” models often **will not** behave as a spoken assistant. English vs other languages is the model’s problem, not Jarvis’s.
+- Local Ollama has **no token bill**. You still pay in RAM, disk, heat, and time.
+
+### Piper voices (ONNX)
+
+The voice dropdown is **every `*.onnx` file in `models/piper/`**. That is not a quality filter.
+
+- Use voices from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) only. Other Hugging Face TTS repos (Coqui, StyleTTS, raw PyTorch, etc.) **will not load**.
+- Each voice is **two files with the same stem**: `name.onnx` **and** `name.onnx.json`. Missing JSON → Piper fails at speak-time.
+- Files are large (often **50–80 MB** per medium voice). Do not commit them; they are gitignored.
+- **Speaker id** (`voice_speaker`) only applies to multi-speaker models (e.g. LibriTTS-R has hundreds of ids). A single-speaker voice should stay at `0`. A wrong id can crash or sound broken.
+- Language of the ONNX file should match what you speak. An `en_US` voice reading other languages will sound wrong; that is expected.
+- A corrupt or incomplete download will fail when the assistant tries to talk, not when you pick it in the list.
+
+### Whisper
+
+`bin/whisper-cli` must be a **whisper.cpp** binary, and `models/whisper/` must hold a **ggml** checkpoint (`ggml-base.en.bin` is the example). Other `.bin` formats will not work.
+
+`scripts/download-models.sh` only fetches **one** example Whisper file and **one** example Piper voice so the folders exist. Replace them whenever you like.
 
 ## Setup
 
