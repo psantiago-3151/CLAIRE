@@ -1,10 +1,11 @@
-# Jarvis settings. Env vars (JARVIS_*) override these.
+# Copy to jarvis.conf (gitignored) and edit.
+# Env vars (JARVIS_*) override these.
 # Paths may be relative to the project root.
 
 # Ollama model
-llm_model=mistral-nemo:latest
+llm_model=qwen2.5:7b
 
-# Hugging Face Piper voice (rhasspy/piper-voices en_US-libritts_r-medium)
+# Hugging Face Piper voice (rhasspy/piper-voices)
 voice_model=models/piper/en_US-libritts_r-medium.onnx
 voice_speaker=0
 
@@ -12,14 +13,16 @@ whisper_bin=bin/whisper-cli
 whisper_model=models/whisper/ggml-base.en.bin
 piper_bin=venv/bin/piper
 memory_dir=memory
+# Linux arecord device: default, pulse, plughw:1,0. Empty = auto.
+mic_device=
 
 # Filler speech while waiting on the model (repeats this often)
-thinking_interval_secs=4
+thinking_interval_secs=5
 # Silence inserted before the wake word in missing-wake replies
 name_breath_secs=0.35
 
 # Wake word (matched anywhere in the transcript)
-wake_word=jeeves
+wake_word=friday
 
 # sshkeyboard names: tab, space, f8, f12, esc, ...
 record_key=tab

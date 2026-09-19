@@ -37,11 +37,23 @@ _state = {
     "heard": "",
     "reply": "",
     "message": "Standby",
+    "alert": None,
+    "empty_captures": 0,
 }
+EMPTY_CAPTURE_WARN_AFTER = 3
 _ollama_cache = {"ok": None, "at": 0.0}
 OLLAMA_SERVE_HINT = (
     "Ollama is not running. In a terminal, start it with: "
     "vendor/ollama/ollama serve"
+)
+MIC_HINT = (
+    "No microphone found. Plug one in, then open the hamburger → Admin "
+    "and choose Microphone device."
+)
+MIC_CAPTURE_HINT = (
+    "Several recordings in a row picked up no speech. You may not have said "
+    "anything — if so, dismiss this. If you were talking, the microphone may "
+    "need to be plugged in or assigned under Admin settings → Microphone device."
 )
 
 
@@ -90,11 +102,13 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
         "busy": _state["busy"],
         "ollama": _ollama_up(fresh=fresh_ollama),
         "ollama_hint": OLLAMA_SERVE_HINT,
+        "mic": comms.microphone_status(),
         "wake_word": wake,
         "wake_label": _wake_label(wake),
         "heard": _state["heard"],
         "reply": _state["reply"],
         "message": _state["message"],
+        "alert": _state.get("alert"),
         "record_key": comms.RECORD_KEY,
         "interrupt_key": comms.INTERRUPT_KEY,
         "quit_key": comms.QUIT_KEY,
@@ -108,16 +122,30 @@ def _stop_inner():
     _state["running"] = False
     _state["busy"] = False
     _state["message"] = "Standby"
+    _state["alert"] = None
+    _state["empty_captures"] = 0
 
 
 def _finish_recording():
     try:
         heard = comms.comms.listen()
+        if not (heard or "").strip():
+            _state["empty_captures"] = int(_state.get("empty_captures") or 0) + 1
+            _state["heard"] = ""
+            _state["reply"] = ""
+            if _state["empty_captures"] > EMPTY_CAPTURE_WARN_AFTER:
+                _state["message"] = MIC_CAPTURE_HINT
+                _state["alert"] = {"type": "mic", "message": MIC_CAPTURE_HINT}
+            else:
+                _state["message"] = "No speech heard"
+            return
+        _state["empty_captures"] = 0
         if not _ollama_up(fresh=True):
             _state["heard"] = heard or ""
             _state["reply"] = ""
             _state["message"] = OLLAMA_SERVE_HINT
             return
+        _state["alert"] = None
         result = comms.process_utterance(heard)
         _state["heard"] = result.get("heard") or ""
         _state["reply"] = result.get("reply") or ""
@@ -190,6 +218,14 @@ def _page_context(request: Request) -> dict:
         "status": status,
         "status_json": json.dumps(status),
         "wake_label": status["wake_label"],
+        "mic_devices": (status.get("mic") or {}).get("devices") or [],
+        "mic_field": fields.get("mic_device") or {
+            "key": "mic_device",
+            "label": "Microphone device",
+            "value": "",
+            "default": "",
+            "env_value": "",
+        },
     }
 
 
@@ -214,6 +250,7 @@ def post_config(body: ConfigUpdate):
     payload = comms.config_payload()
     payload["saved"] = saved
     payload["status"] = _snapshot()
+    payload["mic_devices"] = comms.list_microphones()
     payload["apply_on_restart"] = _state["running"]
     return payload
 
@@ -243,6 +280,10 @@ def start_assistant(body: Optional[ConfigUpdate] = None):
         if not _ollama_up(fresh=True):
             _state["message"] = OLLAMA_SERVE_HINT
             raise HTTPException(status_code=400, detail=OLLAMA_SERVE_HINT)
+        mic = comms.microphone_status(fresh=True)
+        if not mic.get("ok"):
+            _state["message"] = mic.get("hint") or MIC_HINT
+            raise HTTPException(status_code=400, detail=_state["message"])
         _state["running"] = True
         _state["busy"] = False
         _state["heard"] = ""
@@ -286,6 +327,13 @@ def interrupt_speech():
         raise HTTPException(status_code=409, detail="not running")
     comms.comms.interrupt()
     _state["message"] = "Interrupted"
+    return _snapshot()
+
+
+@app.post("/api/ack-alert")
+def ack_alert():
+    _state["alert"] = None
+    _state["empty_captures"] = 0
     return _snapshot()
 
 

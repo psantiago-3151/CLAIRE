@@ -182,42 +182,119 @@ LLM_MODEL = _setting("JARVIS_LLM_MODEL", "llm_model", "qwen2.5:7b")
 VOICE_MODEL = _setting(
     "JARVIS_VOICE_MODEL",
     "voice_model",
-    str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx")
-    if IS_MAC
-    else "/mnt/workstation/ai-repos/voice-ai/piper-voices/en_US-libritts_r-medium/en_US-libritts_r-medium.onnx",
+    str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx"),
     path=True,
 )
 VOICE_SPEAKER = int(_setting("JARVIS_VOICE_SPEAKER", "voice_speaker", "0"))
 WHISPER_BIN = _setting(
     "JARVIS_WHISPER_BIN",
     "whisper_bin",
-    str(ROOT / "bin" / "whisper-cli")
-    if IS_MAC
-    else "/mnt/workstation/ai-repos/voice-ai/whisper.cpp/build/bin/whisper-cli",
+    str(ROOT / "bin" / "whisper-cli"),
     path=True,
 )
 WHISPER_MODEL = _setting(
     "JARVIS_WHISPER_MODEL",
     "whisper_model",
-    str(ROOT / "models" / "whisper" / "ggml-base.en.bin")
-    if IS_MAC
-    else "/mnt/workstation/ai-repos/voice-ai/whisper.cpp/models/ggml-base.en.bin",
+    str(ROOT / "models" / "whisper" / "ggml-base.en.bin"),
     path=True,
 )
 PIPER_BIN = _setting(
     "JARVIS_PIPER_BIN",
     "piper_bin",
-    str(ROOT / "venv" / "bin" / "piper") if IS_MAC else "piper",
+    str(ROOT / "venv" / "bin" / "piper"),
+    path=True,
 )
 MEMORY_DIR = _setting(
     "JARVIS_MEMORY_DIR",
     "memory_dir",
-    str(ROOT / "memory")
-    if IS_MAC
-    else "/mnt/workstation/ai-repos/voice-ai/.voice_ai_memory",
+    str(ROOT / "memory"),
     path=True,
 )
+MIC_DEVICE = _setting("JARVIS_MIC_DEVICE", "mic_device", "")
 AI_NAME = _setting("JARVIS_WAKE_WORD", "wake_word", "friday").lower()
+_mic_cache = {"at": 0.0, "status": None}
+
+
+def list_microphones() -> list:
+    devices = []
+    seen = set()
+
+    def add(did: str, name: str):
+        if not did or did in seen:
+            return
+        seen.add(did)
+        devices.append({"id": did, "name": name})
+
+    try:
+        import sounddevice as sd
+
+        for i, info in enumerate(sd.query_devices()):
+            if int(info.get("max_input_channels") or 0) > 0:
+                label = info.get("name") or f"input {i}"
+                add(str(i), f"{label} (#{i})")
+    except Exception:
+        pass
+    if shutil.which("arecord"):
+        try:
+            listed = subprocess.run(
+                ["arecord", "-L"], capture_output=True, text=True, timeout=3
+            )
+            for line in listed.stdout.splitlines():
+                name = line.strip()
+                if not name or name.startswith(" ") or name.startswith("*"):
+                    continue
+                if name in ("null", "hw", "plughw", "sysdefault"):
+                    continue
+                add(name, name)
+        except Exception:
+            pass
+        try:
+            cards = subprocess.run(
+                ["arecord", "-l"], capture_output=True, text=True, timeout=3
+            )
+            for line in cards.stdout.splitlines():
+                match = re.search(r"card (\d+).*device (\d+)", line)
+                if not match:
+                    continue
+                upper = line.upper()
+                if "HDMI" in upper or "LOOPBACK" in upper:
+                    continue
+                ident = f"plughw:{match.group(1)},{match.group(2)}"
+                add(ident, line.strip())
+        except Exception:
+            pass
+    return devices
+
+
+def microphone_status(*, fresh: bool = False) -> dict:
+    now = time.monotonic()
+    if (
+        not fresh
+        and _mic_cache["status"] is not None
+        and now - _mic_cache["at"] < 2.0
+    ):
+        return _mic_cache["status"]
+    devices = list_microphones()
+    assigned = (MIC_DEVICE or "").strip()
+    ids = {d["id"] for d in devices}
+    if assigned and assigned not in ids:
+        devices = [{"id": assigned, "name": f"{assigned} (configured)"}] + devices
+        ids.add(assigned)
+    ok = bool(devices) or bool(assigned)
+    hint = (
+        ""
+        if ok
+        else "No microphone found. Plug one in, then open Admin settings and choose it."
+    )
+    status = {
+        "ok": ok,
+        "assigned": assigned or "auto",
+        "devices": devices,
+        "hint": hint,
+    }
+    _mic_cache["status"] = status
+    _mic_cache["at"] = now
+    return status
 RECORD_KEY = _setting("JARVIS_RECORD_KEY", "record_key", "tab").lower()
 INTERRUPT_KEY = _setting("JARVIS_INTERRUPT_KEY", "interrupt_key", "f12").lower()
 QUIT_KEY = _setting("JARVIS_QUIT_KEY", "quit_key", "esc").lower()
@@ -243,6 +320,7 @@ CONFIG_FIELDS = [
     {"key": "whisper_model", "env": "JARVIS_WHISPER_MODEL", "label": "Whisper model", "group": "models", "ui": "admin", "default": "models/whisper/ggml-base.en.bin"},
     {"key": "piper_bin", "env": "JARVIS_PIPER_BIN", "label": "Piper binary", "group": "models", "ui": "admin", "default": "venv/bin/piper"},
     {"key": "memory_dir", "env": "JARVIS_MEMORY_DIR", "label": "Memory directory", "group": "models", "ui": "admin", "default": "memory"},
+    {"key": "mic_device", "env": "JARVIS_MIC_DEVICE", "label": "Microphone device (Linux arecord; empty = auto)", "group": "models", "ui": "admin", "default": ""},
     {"key": "thinking_interval_secs", "env": "JARVIS_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
     {"key": "name_breath_secs", "env": "JARVIS_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
     {"key": "wake_word", "env": "JARVIS_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "friday"},
@@ -268,6 +346,8 @@ whisper_bin={whisper_bin}
 whisper_model={whisper_model}
 piper_bin={piper_bin}
 memory_dir={memory_dir}
+# Linux arecord device: default, pulse, plughw:1,0. Empty = auto.
+mic_device={mic_device}
 
 # Filler speech while waiting on the model (repeats this often)
 thinking_interval_secs={thinking_interval_secs}
@@ -290,7 +370,7 @@ new_session_phrase={new_session_phrase}
 
 def reload_settings():
     global CONF, LLM_MODEL, VOICE_MODEL, VOICE_SPEAKER, WHISPER_BIN, WHISPER_MODEL
-    global PIPER_BIN, MEMORY_DIR, AI_NAME, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
+    global PIPER_BIN, MEMORY_DIR, MIC_DEVICE, AI_NAME, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
     global QUIT_PHRASES, NEW_SESSION_PHRASE, CURRENT_FILE
     global THINKING_INTERVAL_SECS, BREATH_SECS
     CONF = _load_conf(CONF_PATH)
@@ -298,41 +378,36 @@ def reload_settings():
     VOICE_MODEL = _setting(
         "JARVIS_VOICE_MODEL",
         "voice_model",
-        str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx")
-        if IS_MAC
-        else "/mnt/workstation/ai-repos/voice-ai/piper-voices/en_US-libritts_r-medium/en_US-libritts_r-medium.onnx",
+        str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx"),
         path=True,
     )
     VOICE_SPEAKER = int(_setting("JARVIS_VOICE_SPEAKER", "voice_speaker", "0"))
     WHISPER_BIN = _setting(
         "JARVIS_WHISPER_BIN",
         "whisper_bin",
-        str(ROOT / "bin" / "whisper-cli")
-        if IS_MAC
-        else "/mnt/workstation/ai-repos/voice-ai/whisper.cpp/build/bin/whisper-cli",
+        str(ROOT / "bin" / "whisper-cli"),
         path=True,
     )
     WHISPER_MODEL = _setting(
         "JARVIS_WHISPER_MODEL",
         "whisper_model",
-        str(ROOT / "models" / "whisper" / "ggml-base.en.bin")
-        if IS_MAC
-        else "/mnt/workstation/ai-repos/voice-ai/whisper.cpp/models/ggml-base.en.bin",
+        str(ROOT / "models" / "whisper" / "ggml-base.en.bin"),
         path=True,
     )
     PIPER_BIN = _setting(
         "JARVIS_PIPER_BIN",
         "piper_bin",
-        str(ROOT / "venv" / "bin" / "piper") if IS_MAC else "piper",
+        str(ROOT / "venv" / "bin" / "piper"),
+        path=True,
     )
     MEMORY_DIR = _setting(
         "JARVIS_MEMORY_DIR",
         "memory_dir",
-        str(ROOT / "memory")
-        if IS_MAC
-        else "/mnt/workstation/ai-repos/voice-ai/.voice_ai_memory",
+        str(ROOT / "memory"),
         path=True,
     )
+    MIC_DEVICE = _setting("JARVIS_MIC_DEVICE", "mic_device", "")
+    _mic_cache["status"] = None
     AI_NAME = _setting("JARVIS_WAKE_WORD", "wake_word", "friday").lower()
     RECORD_KEY = _setting("JARVIS_RECORD_KEY", "record_key", "tab").lower()
     INTERRUPT_KEY = _setting("JARVIS_INTERRUPT_KEY", "interrupt_key", "f12").lower()
@@ -477,6 +552,16 @@ def _concat_wavs(out_path: str, paths: list):
             wf.writeframes(chunk)
 
 
+def _wav_player(path: str):
+    if IS_MAC:
+        return ["afplay", path]
+    for name in ("pw-play", "paplay", "aplay"):
+        found = shutil.which(name)
+        if found:
+            return [found, path]
+    return None
+
+
 def log(*args):
     """Print even when sshkeyboard leaves stdout non-blocking."""
     msg = " ".join(str(a) for a in args) + "\n"
@@ -506,13 +591,9 @@ class Comms:
         self.whisper_bin = WHISPER_BIN
         self.whisper_model = WHISPER_MODEL
         self.piper_bin = PIPER_BIN
-        self.tmp_raw = "/tmp/voice_ai_raw.raw"
-        if IS_MAC:
-            self.tmp_wav = str(ROOT / "temp" / "input.wav")
-            self.tmp_tts = str(ROOT / "temp" / "response.wav")
-        else:
-            self.tmp_wav = "/mnt/workstation/ai-repos/voice-ai/temp/input.wav"
-            self.tmp_tts = "/mnt/workstation/ai-repos/voice-ai/temp/response.wav"
+        self.tmp_raw = str(ROOT / "temp" / "input.raw")
+        self.tmp_wav = str(ROOT / "temp" / "input.wav")
+        self.tmp_tts = str(ROOT / "temp" / "response.wav")
         Path(os.path.dirname(self.tmp_wav)).mkdir(parents=True, exist_ok=True)
 
         self.mic = self._detect_microphone()
@@ -523,6 +604,7 @@ class Comms:
         self.speak_process = None
         self.rec_stream = None
         self.rec_frames = []
+        self.capture_mode = "sd" if IS_MAC else "arecord"
 
     def missing(self) -> list:
         problems = []
@@ -530,24 +612,63 @@ class Comms:
             problems.append(f"whisper-cli not found: {self.whisper_bin}")
         if not os.path.isfile(self.whisper_model):
             problems.append(f"whisper model not found: {self.whisper_model}")
+        if not os.path.isfile(self.voice_model):
+            problems.append(f"Piper voice not found: {self.voice_model}")
+        if not IS_MAC:
+            if not shutil.which("arecord"):
+                problems.append("arecord not found (install alsa-utils)")
+            if not shutil.which("sox"):
+                problems.append("sox not found")
+            if not any(shutil.which(name) for name in ("pw-play", "paplay", "aplay")):
+                problems.append("no WAV player found (pw-play, paplay, or aplay)")
         return problems
 
     def _detect_microphone(self) -> str:
+        if MIC_DEVICE:
+            return MIC_DEVICE
         if IS_MAC:
             return "default"
         try:
-            result = subprocess.run(
-                ["arecord", "-l"], capture_output=True, text=True, check=True
+            listed = subprocess.run(
+                ["arecord", "-L"], capture_output=True, text=True, timeout=5
             )
-            for line in result.stdout.splitlines():
-                if "USB" in line.upper():
-                    match = re.search(r"card (\d+).*device (\d+)", line)
-                    if match:
-                        card, dev = match.groups()
-                        return f"plughw:{card},{dev}"
+            names = [
+                line.strip()
+                for line in listed.stdout.splitlines()
+                if line.strip() and not line.startswith(" ")
+            ]
+            for preferred in ("default", "pulse", "pipewire"):
+                if preferred in names:
+                    return preferred
         except Exception:
             pass
-        return "plughw:0,0"
+        try:
+            result = subprocess.run(
+                ["arecord", "-l"], capture_output=True, text=True, check=True, timeout=5
+            )
+            usb = None
+            first = None
+            for line in result.stdout.splitlines():
+                match = re.search(r"card (\d+).*device (\d+)", line)
+                if not match:
+                    continue
+                card, dev = match.groups()
+                name = f"plughw:{card},{dev}"
+                upper = line.upper()
+                if "HDMI" in upper or "LOOPBACK" in upper:
+                    continue
+                if first is None:
+                    first = name
+                if "USB" in upper:
+                    usb = name
+                    break
+            if usb:
+                return usb
+            if first:
+                return first
+        except Exception:
+            pass
+        return "default"
 
     @staticmethod
     def _write_wav_int16(path: str, audio_bytes: bytes, rate: int = 16000):
@@ -564,23 +685,15 @@ class Comms:
                 os.remove(path)
         self.recording = True
 
+        if self._start_sounddevice():
+            return
         if IS_MAC:
-            import sounddevice as sd
-
-            self.rec_frames = []
-
-            def _callback(indata, frames, time_info, status):
-                self.rec_frames.append(indata.copy())
-
-            self.rec_stream = sd.InputStream(
-                samplerate=16000,
-                channels=1,
-                dtype="int16",
-                callback=_callback,
-            )
-            self.rec_stream.start()
+            self.recording = False
+            log("Could not open the microphone (sounddevice)")
             return
 
+        self.capture_mode = "arecord"
+        log(f"arecord device: {self.mic}")
         self.rec_process = subprocess.Popen(
             [
                 "arecord",
@@ -595,9 +708,36 @@ class Comms:
             stderr=subprocess.DEVNULL,
         )
 
+    def _start_sounddevice(self) -> bool:
+        try:
+            import sounddevice as sd
+        except Exception as exc:
+            log(f"sounddevice unavailable: {exc}")
+            return False
+        try:
+            self.rec_frames = []
+
+            def _callback(indata, frames, time_info, status):
+                self.rec_frames.append(indata.copy())
+
+            kwargs = dict(samplerate=16000, channels=1, dtype="int16", callback=_callback)
+            if MIC_DEVICE and not IS_MAC:
+                try:
+                    kwargs["device"] = int(MIC_DEVICE)
+                except ValueError:
+                    kwargs["device"] = MIC_DEVICE
+            self.rec_stream = sd.InputStream(**kwargs)
+            self.rec_stream.start()
+            self.capture_mode = "sd"
+            return True
+        except Exception as exc:
+            log(f"sounddevice mic failed: {exc}")
+            self.rec_stream = None
+            return False
+
     def stop_recording(self):
         log("🎤 Stopping recording...")
-        if IS_MAC:
+        if self.capture_mode == "sd" or self.rec_stream is not None:
             if self.rec_stream is not None:
                 self.rec_stream.stop()
                 self.rec_stream.close()
@@ -621,7 +761,7 @@ class Comms:
         time.sleep(0.3)
 
     def _convert_to_wav(self) -> bool:
-        if IS_MAC:
+        if self.capture_mode == "sd":
             if not os.path.exists(self.tmp_wav) or os.path.getsize(self.tmp_wav) < 1000:
                 log("No audio captured")
                 return False
@@ -761,7 +901,11 @@ class Comms:
         log(f"AI: {text}")
         self.speaking = True
         if used_piper:
-            player = ["afplay", self.tmp_tts] if IS_MAC else ["pw-play", self.tmp_tts]
+            player = _wav_player(self.tmp_tts)
+            if not player:
+                log("No WAV player found (afplay, pw-play, paplay, or aplay)")
+                self.speaking = False
+                return
             self.speak_process = subprocess.Popen(player)
         elif IS_MAC:
             slnc_ms = max(50, int(round(BREATH_SECS * 1000)))

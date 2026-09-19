@@ -1,7 +1,13 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 .DS_Store
+.idea/
+.vscode/
+*.log
+
+# Local runtime (keep on disk, not in git)
 temp/
 memory/
 vendor/
@@ -11,3 +17,9 @@ models/
 *.bin
 *.wav
 *.raw
+
+# Machine-specific settings
+jarvis.conf
+llm.conf
+.env
+.env.*

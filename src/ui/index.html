@@ -269,6 +269,54 @@
     }
     .hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; min-height: 1.2em; }
     .error { color: var(--stop); }
+    .modal-back {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 10, 14, 0.72);
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-back[hidden] { display: none; }
+    .modal {
+      max-width: 420px;
+      width: 100%;
+      background: #2a1c0c;
+      border: 2px solid #e8b44a;
+      border-radius: 14px;
+      padding: 22px 20px 18px;
+      color: #f5d78a;
+    }
+    .modal h3 {
+      margin: 0 0 10px;
+      font-size: 1.05rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #e8b44a;
+    }
+    .modal p { margin: 0 0 16px; line-height: 1.45; color: var(--ink); }
+    .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .modal-actions button {
+      flex: 1;
+      min-width: 120px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+    .modal-actions .primary {
+      background: #e8b44a;
+      border: 0;
+      color: #1a140c;
+    }
+    .modal-actions .ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
     @media (max-width: 640px) {
       .fields { grid-template-columns: 1fr; }
       label.wide { grid-column: auto; }
@@ -284,6 +332,9 @@
         <span id="badge" class="badge">{{ "Running" if status.running else "Standby" }}</span>
         <span id="ollama-badge" class="badge{% if status.ollama %} on{% else %} hazard{% endif %}">
           {{ "Ollama: running" if status.ollama else "⚠ Ollama is not running ⚠" }}
+        </span>
+        <span id="mic-badge" class="badge{% if status.mic and status.mic.ok %} on{% else %} hazard{% endif %}">
+          {{ "Mic: ready" if status.mic and status.mic.ok else "⚠ Mic not found ⚠" }}
         </span>
         <button type="button" id="menu-btn" class="hamburger" aria-label="Menu" aria-expanded="false">
           <span></span><span></span><span></span>
@@ -302,6 +353,7 @@
       The rest of the UI is locked. Start Ollama, then this page will unlock.
       <code>cd /Users/p-san/Projects/Jarvis && vendor/ollama/ollama serve</code>
     </p>
+
     <div id="app-body"{% if status.ollama == false %} inert{% endif %}>
     <p class="lede">Defaults are loaded below. Change anything you want, then start.</p>
 
@@ -366,11 +418,19 @@
         <h2>Admin</h2>
         <div class="fields">
           {% for field in admin_fields %}
-          <label{% if field.key in wide_keys %} class="wide"{% endif %}>
+          <label{% if field.key in wide_keys or field.key == "mic_device" %} class="wide"{% endif %}>
             <span>
               {{ field.label }}
               {% if field.env_value %}<span class="env">overridden by {{ field.env }}</span>{% endif %}
             </span>
+            {% if field.key == "mic_device" %}
+            <select id="mic_device" name="mic_device" data-default="">
+              <option value=""{% if not field.value %} selected{% endif %}>Auto</option>
+              {% for dev in mic_devices %}
+              <option value="{{ dev.id }}"{% if field.value == dev.id %} selected{% endif %}>{{ dev.name }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input
               id="{{ field.key }}"
               name="{{ field.key }}"
@@ -382,6 +442,7 @@
               {% if field.key == "thinking_interval_secs" %}inputmode="decimal" min="3" step="0.1"{% endif %}
               {% if field.key == "name_breath_secs" %}inputmode="decimal" min="0.05" max="2" step="0.05"{% endif %}
             />
+            {% endif %}
           </label>
           {% endfor %}
         </div>
@@ -409,6 +470,20 @@
     </section>
     </div>
   </main>
+  <div id="mic-alert" class="modal-back" hidden role="dialog" aria-labelledby="mic-alert-title">
+    <div class="modal">
+      <h3 id="mic-alert-title">⚠ Nothing captured</h3>
+      <p id="mic-alert-body">
+        Several recordings in a row picked up no speech. You may not have said
+        anything — if so, dismiss this. If you were talking, connect a mic and
+        set <strong>Microphone device</strong> under Admin settings.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="primary" id="mic-alert-admin">Open Admin</button>
+        <button type="button" class="ghost" id="mic-alert-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
   <script>
     const $ = (id) => document.getElementById(id);
     let running = {{ "true" if status.running else "false" }};
@@ -482,10 +557,33 @@
       });
     }
 
+    function syncMicSelect(s) {
+      const sel = $("mic_device");
+      const devices = s.mic && s.mic.devices;
+      if (!sel || !devices) return;
+      const current = sel.value;
+      const ids = new Set(devices.map((d) => d.id));
+      sel.innerHTML = "";
+      const auto = document.createElement("option");
+      auto.value = "";
+      auto.textContent = "Auto";
+      sel.appendChild(auto);
+      devices.forEach((d) => {
+        const opt = document.createElement("option");
+        opt.value = d.id;
+        opt.textContent = d.name;
+        sel.appendChild(opt);
+      });
+      if (current && (current === "" || ids.has(current))) sel.value = current;
+      else if (s.mic.assigned && s.mic.assigned !== "auto") sel.value = s.mic.assigned;
+      else sel.value = "";
+    }
+
     function applyStatus(s) {
       running = !!s.running;
       busy = !!s.busy;
       const ollamaUp = s.ollama !== false;
+      const micOk = !s.mic || s.mic.ok !== false;
       document.body.classList.toggle("ollama-down", !ollamaUp);
       const appBody = $("app-body");
       if (ollamaUp) appBody.removeAttribute("inert");
@@ -495,13 +593,17 @@
       $("badge").classList.remove("warn");
       $("ollama-badge").textContent = ollamaUp ? "Ollama: running" : "⚠ Ollama is not running ⚠";
       $("ollama-badge").classList.toggle("on", ollamaUp);
+      $("mic-badge").textContent = micOk ? "Mic: ready" : "⚠ Mic not found ⚠";
+      $("mic-badge").classList.toggle("on", micOk);
+      $("mic-badge").classList.toggle("hazard", !micOk);
+      if (document.activeElement !== $("mic_device")) syncMicSelect(s);
       $("ollama-badge").classList.toggle("warn", false);
       $("ollama-badge").classList.toggle("hazard", !ollamaUp);
       $("ollama-note").classList.toggle("show", !ollamaUp);
       $("admin-toggle").disabled = !ollamaUp;
       powerLabel(s);
-      $("power").disabled = !ollamaUp || (busy && running);
-      $("record").disabled = !ollamaUp || !running || busy;
+      $("power").disabled = !ollamaUp || !micOk || (busy && running);
+      $("record").disabled = !ollamaUp || !micOk || !running || busy;
       $("interrupt").disabled = !ollamaUp || !running;
       $("record").textContent = s.recording ? "Stop recording" : "Record";
       $("record").classList.toggle("hot", !!s.recording);
@@ -510,6 +612,14 @@
       $("reply").textContent = s.reply || "—";
       setFormDisabled(running || !ollamaUp);
       updateDirty();
+      const alertBox = $("mic-alert");
+      if (alertBox) {
+        alertBox.hidden = !(s.alert && s.alert.type === "mic");
+        if (s.alert && s.alert.message) {
+          const body = $("mic-alert-body");
+          if (body) body.textContent = s.alert.message;
+        }
+      }
     }
 
     async function api(path, opts) {
@@ -544,6 +654,19 @@
     $("menu").addEventListener("click", (e) => e.stopPropagation());
     $("admin-toggle").addEventListener("change", () => setAdmin($("admin-toggle").checked));
     setAdmin(localStorage.getItem("jarvisAdmin") === "1");
+
+    async function dismissMicAlert() {
+      $("mic-alert").hidden = true;
+      try { await api("/api/ack-alert", { method: "POST" }); } catch (_) {}
+    }
+    $("mic-alert-dismiss").addEventListener("click", () => { dismissMicAlert(); });
+    $("mic-alert-admin").addEventListener("click", () => {
+      dismissMicAlert();
+      setAdmin(true);
+      $("menu").hidden = true;
+      const section = $("admin-section");
+      if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
 
     $("shutdown").addEventListener("click", async (e) => {
       e.stopPropagation();
