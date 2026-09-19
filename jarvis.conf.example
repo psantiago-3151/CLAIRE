@@ -1,6 +1,10 @@
 # Copy to jarvis.conf (gitignored) and edit.
 # Env vars (JARVIS_*) override these.
 # Paths may be relative to the project root.
+#
+# These names are examples only. Swap the Ollama model, Piper .onnx, and
+# Whisper ggml file after you download them. Jarvis only lists what is
+# already on disk / in Ollama; it does not guarantee any given combo.
 
 # Ollama model
 llm_model=qwen2.5:7b

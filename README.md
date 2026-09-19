@@ -19,7 +19,19 @@ Windows is not supported yet.
 - **macOS:** Mic permission for Terminal/Python
 - **Linux:** `alsa-utils`, `sox`, and `pw-play` / `paplay` / `aplay`
 
-Large files (Ollama weights, Whisper `.bin`, Piper `.onnx`, `whisper-cli`) are **not** in git. Download them locally.
+Large files (Ollama weights, Whisper `.bin`, Piper `.onnx`, `whisper-cli`) are **not** in git. You download them and drop them in place.
+
+## Warnings: you bring the models
+
+Jarvis does **not** ship or endorse a specific LLM, Whisper checkpoint, or Piper voice as “the” assistant. It only wires **whatever you install** into a pick-list after download.
+
+- **Ollama / LLM:** `ollama pull <name>`. The UI lists models Ollama already has. Any chat/instruct model *might* work; many will not (too slow, too large, wrong template, no English, “thinking” models that ramble). RAM, license, and quality are yours to judge. There are **no token fees** for local Ollama, but a 70B pull can freeze a small machine.
+- **Piper / TTS:** put `*.onnx` and the matching `*.onnx.json` in `models/piper/`. The dropdown is “files in that folder,” not a curated voice store. Only [Piper](https://huggingface.co/rhasspy/piper-voices) ONNX voices are supported — not every Hugging Face TTS repo. Multi-speaker voices need a valid **speaker id**. A bad file will fail at speak-time.
+- **Whisper / STT:** `whisper-cli` plus a **whisper.cpp** `ggml-*.bin` in `models/whisper/` (default path in config). Other STT stacks will not load. `base.en` is a starting point, not a guarantee for every accent or language.
+- **Defaults** (`qwen2.5:7b`, `ggml-base.en.bin`, `en_US-libritts_r-medium`) are **examples** so a first run can work. Replace them. The project will not update or support every combination you choose.
+- **Licenses** of models are separate from this repo’s MIT license. Read the model card before you redistribute a voice or weight.
+
+`scripts/download-models.sh` only fetches one Whisper file and one Piper voice so the folders exist. After that, you pick in the UI.
 
 ## Setup
 
@@ -105,7 +117,7 @@ Copy `jarvis.conf.example` → `jarvis.conf` (gitignored). The UI writes that fi
 | Spoken quit phrases | `JARVIS_QUIT_PHRASES` | `exit,goodbye,shut down` |
 | New-session phrase | `JARVIS_NEW_SESSION_PHRASE` | `scratch that` |
 
-More Piper voices: [Hugging Face piper-voices (en_US)](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US). More Ollama models: [ollama.com/library](https://ollama.com/library).
+Drop extra Piper `.onnx` files in `models/piper/` and extra Whisper `ggml-*.bin` in `models/whisper/`, then refresh the UI. Pull more LLMs with `ollama pull`. Catalogs: [Piper voices](https://huggingface.co/rhasspy/piper-voices), [Ollama library](https://ollama.com/library), [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp). See **Warnings** above: listing a file does not mean it is tested.
 
 If Record is silent, set **Microphone device** in Admin (`default`, `pulse`, `plughw:1,0`). Check `arecord -l` / `arecord -L`. After several consecutive empty recordings, the UI warns that the mic may need assignment — or that nobody spoke.
 

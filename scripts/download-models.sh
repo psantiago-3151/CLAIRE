@@ -27,7 +27,8 @@ else
 fi
 
 echo
-echo "Models ready under models/."
-echo "Still needed: whisper-cli in bin/ and Ollama (https://ollama.com )."
+echo "Starter Whisper + Piper files are under models/ (examples only)."
+echo "Replace them with any whisper.cpp ggml and Piper ONNX voice you want."
+echo "Still needed: whisper-cli in bin/ and Ollama (https://ollama.com)."
 echo "  whisper.cpp: https://github.com/ggml-org/whisper.cpp"
-echo "  then: ollama pull qwen2.5:7b"
+echo "  then: ollama pull qwen2.5:7b   # or any other local chat model"
