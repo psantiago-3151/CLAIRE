@@ -282,7 +282,7 @@ def _page_context(request: Request) -> dict:
 
 @app.get("/")
 def index(request: Request):
-    return templates.TemplateResponse("index.html", _page_context(request))
+    return templates.TemplateResponse(request, "index.html", _page_context(request))
 
 
 @app.get("/api/config")
@@ -468,7 +468,6 @@ def _quiet_shutdown_logs():
 
 def _hard_exit_soon(delay: float = 0.6):
     def _go():
-        print("CLAIRE stopped.", flush=True)
         os._exit(0)
     timer = threading.Timer(delay, _go)
     timer.daemon = True
@@ -478,7 +477,11 @@ def _hard_exit_soon(delay: float = 0.6):
 def _request_exit():
     """Exit this process. Menu Shut down only — spoken quit phrases use Stop."""
     global _shutting_down
+    if _shutting_down:
+        comms.log("Shut down already in progress.")
+        return
     _shutting_down = True
+    comms.log("Shutting down gracefully...")
     _quiet_shutdown_logs()
     _push_ui()
     _hard_exit_soon(0.6)
@@ -488,8 +491,10 @@ def _request_exit():
     try:
         with _lock:
             _stop_inner(quiet=True)
-    except Exception:
-        pass
+        comms.log("Voice loop stopped.")
+    except Exception as exc:
+        comms.log(f"Voice loop stop error: {exc}")
+    comms.log("CLAIRE stopped.")
 
 
 def _exit_process():
@@ -499,19 +504,21 @@ def _exit_process():
 @app.post("/api/shutdown")
 def shutdown_app():
     _request_exit()
-    return {"ok": True, "message": "Shutting down"}
+    return {"ok": True, "message": "Shutting down gracefully"}
 
 
 def main():
     global _server
     import uvicorn
 
-    print(f"CLAIRE {comms.app_version()}  http://{HOST}:{PORT}")
+    print(f"CLAIRE {comms.app_version()}  http://{HOST}:{PORT}", flush=True)
     config = uvicorn.Config(
         app, host=HOST, port=PORT, log_level="warning", access_log=False
     )
     _server = uvicorn.Server(config)
     _server.run()
+    if _shutting_down:
+        comms.log("Shutdown complete.")
 
 
 if __name__ == "__main__":
