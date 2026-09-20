@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Jarvis config UI and start/stop control.
+"""CLAIRE config UI and start/stop control.
 
 Run: python src/web.py
 Then open http://127.0.0.1:8742
 """
+import asyncio
 import json
 import os
+import queue
 import signal
 import threading
 import time
@@ -15,14 +17,15 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 import comms  # loads .env via comms
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
-HOST = os.environ.get("JARVIS_UI_HOST", "127.0.0.1")
-PORT = int(os.environ.get("JARVIS_UI_PORT", "8742"))
+HOST = os.environ.get("CLAIRE_UI_HOST", "127.0.0.1")
+PORT = int(os.environ.get("CLAIRE_UI_PORT", "8742"))
 WIDE_KEYS = {"quit_phrases", "whisper_model"}
 HF_PIPER_VOICES = "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US"
 OLLAMA_LIBRARY = "https://ollama.com/library"
@@ -31,7 +34,7 @@ if "://" not in _OLLAMA_BASE:
     _OLLAMA_BASE = "http://" + _OLLAMA_BASE
 OLLAMA_TAGS = _OLLAMA_BASE + "/api/tags"
 
-app = FastAPI(title="Jarvis")
+app = FastAPI(title="CLAIRE")
 templates = Jinja2Templates(directory=str(UI_DIR))
 _lock = threading.Lock()
 _state = {
@@ -66,8 +69,8 @@ class ConfigUpdate(BaseModel):
 
 
 def _wake_label(word: str) -> str:
-    word = (word or "friday").strip()
-    return word[:1].upper() + word[1:] if word else "Friday"
+    word = (word or "claire").strip()
+    return word[:1].upper() + word[1:] if word else "Claire"
 
 
 def _active_wake() -> str:
@@ -135,6 +138,33 @@ def _stop_inner():
     _state["empty_captures"] = 0
 
 
+_ui_waiters = []
+_ui_waiters_lock = threading.Lock()
+
+
+def _push_ui():
+    with _ui_waiters_lock:
+        waiters = list(_ui_waiters)
+    for waiter in waiters:
+        try:
+            waiter.put_nowait(True)
+        except queue.Full:
+            pass
+
+
+def _paint_turn(result: dict):
+    """Push Heard/Reply to the UI as soon as they exist, before Piper finishes."""
+    if result.get("heard") is not None:
+        _state["heard"] = result.get("heard") or ""
+    if "reply" in result:
+        _state["reply"] = result.get("reply") or ""
+    if result.get("message"):
+        _state["message"] = result["message"]
+    elif result.get("action"):
+        _state["message"] = result["action"]
+    _push_ui()
+
+
 def _finish_recording():
     try:
         heard = comms.comms.listen()
@@ -149,23 +179,29 @@ def _finish_recording():
                 _state["message"] = "No speech heard"
             return
         _state["empty_captures"] = 0
+        _state["heard"] = heard or ""
+        _state["message"] = "Heard"
+        _push_ui()
         if not _ollama_up(fresh=True):
-            _state["heard"] = heard or ""
-            _state["reply"] = ""
             _state["message"] = OLLAMA_SERVE_HINT
+            _push_ui()
             return
         _state["alert"] = None
-        result = comms.process_utterance(heard)
-        _state["heard"] = result.get("heard") or ""
-        _state["reply"] = result.get("reply") or ""
-        _state["message"] = result.get("message") or result.get("action") or ""
+        result = comms.process_utterance(heard, on_result=_paint_turn)
+        _paint_turn(result)
         if result.get("action") == "quit":
             with _lock:
                 _stop_inner()
+        elif _state["running"] and result.get("action") == "reply":
+            _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
     except Exception as exc:
         _state["message"] = f"{type(exc).__name__}: {exc}"
     finally:
         _state["busy"] = False
+        _push_ui()
+
+
+comms.set_ui_listener(_push_ui)
 
 
 def _ollama_models() -> list:
@@ -281,6 +317,46 @@ def get_status():
     return _snapshot()
 
 
+def _sse_pack(data: dict) -> bytes:
+    return f"data: {json.dumps(data)}\n\n".encode()
+
+
+@app.get("/api/events")
+async def ui_events():
+    async def gen():
+        waiter: queue.Queue = queue.Queue(maxsize=4)
+        with _ui_waiters_lock:
+            _ui_waiters.append(waiter)
+        try:
+            yield _sse_pack(_snapshot())
+            while True:
+                try:
+                    await asyncio.to_thread(waiter.get, True, 20)
+                except queue.Empty:
+                    yield b": keepalive\n\n"
+                    continue
+                while True:
+                    try:
+                        waiter.get_nowait()
+                    except queue.Empty:
+                        break
+                yield _sse_pack(_snapshot())
+        finally:
+            with _ui_waiters_lock:
+                if waiter in _ui_waiters:
+                    _ui_waiters.remove(waiter)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/start")
 def start_assistant(body: Optional[ConfigUpdate] = None):
     with _lock:
@@ -329,9 +405,11 @@ def toggle_record():
         if _state["busy"]:
             raise HTTPException(status_code=409, detail="busy")
         if comms.comms.recording:
-            ollama_ok = _ollama_up(fresh=True)
+            comms.comms.stop_recording()
             _state["busy"] = True
-            _state["message"] = "Listening…" if ollama_ok else OLLAMA_SERVE_HINT
+            _state["heard"] = "Captured."
+            _state["reply"] = ""
+            _state["message"] = "Transcribing…"
             threading.Thread(target=_finish_recording, daemon=True).start()
             snap = _snapshot()
             snap["action"] = "processing"
@@ -374,7 +452,7 @@ def shutdown_app():
 def main():
     import uvicorn
 
-    print(f"Jarvis UI  http://{HOST}:{PORT}")
+    print(f"CLAIRE UI  http://{HOST}:{PORT}")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning", access_log=False)
 
 

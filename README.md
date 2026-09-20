@@ -1,105 +1,179 @@
-# Jarvis
+# CLAIRE
 
-Local voice assistant for **macOS** and **Linux**: **mic → Whisper → Ollama → Piper TTS**.
+**C**onversational **L**ocal **A**udio **I**ntelligent **R**untime **E**ngine
 
-A web UI on [http://127.0.0.1:8742](http://127.0.0.1:8742) starts and stops the assistant, picks models and voices, and edits `jarvis.conf`. The assistant is a named wake-word loop with session memory, thinking fillers, and on-device speech.
+A fully configurable voice layer for local LLMs (Ollama — Llama, Qwen, Mistral, and others). In short: **giving local AI models a voice** so you can talk to them.
 
-Windows is not supported yet.
+| Letter | Stands for |
+|---|---|
+| **C** | **Conversational** — speak and be spoken to, not a chat box |
+| **L** | **Local** — models run on your machine via Ollama, not a token API |
+| **A** | **Audio** — Whisper in, Piper out |
+| **I** | **Intelligent** — any chat/instruct LLM you pull |
+| **R** | **Runtime** — Start/Stop loop, memory, fillers, wake word |
+| **E** | **Engine** — the plumbing that ties those pieces together |
+
+macOS and Linux. Web UI at [http://127.0.0.1:8742](http://127.0.0.1:8742). Windows is not supported yet.
+
+## Architecture
+
+Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). The web UI is a control panel; `comms.py` is the voice loop.
+
+```mermaid
+flowchart TB
+  subgraph ui [Control plane]
+    Browser["Browser UI\n127.0.0.1:8742"]
+    Web["src/web.py\nFastAPI"]
+    Browser -->|Start / Stop / Record / Admin| Web
+  end
+
+  subgraph conf [Your files]
+    Conf["claire.conf / .env"]
+    Phrases["phrases/*.json"]
+    Memory["memory/*.json"]
+    Models["models/piper/*.onnx\nmodels/whisper/*.bin\nbin/whisper-cli"]
+  end
+
+  subgraph loop [Voice loop — src/comms.py]
+    Mic["Microphone"]
+    Rec["Record\nmacOS: sounddevice\nLinux: arecord + sox"]
+    STT["Whisper.cpp STT"]
+    Wake["Wake-word check\nfuzzy match"]
+    Fill["Thinking fillers\nPiper, timed phrases"]
+    LLM["Ollama chat model"]
+    TTS["Piper TTS ONNX"]
+    Spk["Speakers\nafplay / pw-play"]
+    Mic --> Rec --> STT --> Wake
+    Wake -->|no wake word| TTS
+    Wake -->|addressed| Fill
+    Fill -.->|while waiting| TTS
+    Wake -->|addressed| LLM
+    LLM --> TTS --> Spk
+    Memory <--> LLM
+  end
+
+  Web --> loop
+  Conf --> Web
+  Conf --> loop
+  Phrases --> Fill
+  Phrases --> Wake
+  Models --> STT
+  Models --> TTS
+
+  subgraph ext [External, still local]
+    Ollama["ollama serve\n:11434"]
+  end
+  LLM <--> Ollama
+```
+
+**Turn flow:** Record → Whisper transcript → fuzzy wake word → if missing, Piper speaks a canned line; if present, Ollama generates (fillers may speak while you wait) → Piper speaks the reply → turn is appended to `memory/`. Admin can edit config and phrases while running; those files apply on the next **Stop / Start**.
 
 ## Credits
 
 - **Design and product:** Philip Santiago (the plumbing).
 - **Implementation:** Grok (xAI) (the plumber).
 
-## Requirements
-
-- Python 3.9+
-- [Ollama](https://ollama.com) (`ollama serve` on `127.0.0.1:11434`)
-- Microphone
-- **macOS:** Mic permission for Terminal/Python
-- **Linux:** `alsa-utils`, `sox`, and `pw-play` / `paplay` / `aplay`
-
-Large files (Ollama weights, Whisper `.bin`, Piper `.onnx`, `whisper-cli`) are **not** in git. You download them and drop them in place.
+This project is a **hobby** and an **exercise of xAI products** plus the designer’s imagination. The spoken name defaults to **Claire**.
 
 ## Warnings
 
-Jarvis does **not** ship LLMs, Whisper weights, or Piper voices. It only lists **what you already downloaded** so you can pick one. Combinations are untested. Licenses of those files are **not** this repo’s MIT license — read each model card.
+### Shared use — no warranty, no responsibility
 
-### Ollama (required)
+This repository is shared **as-is** for others to copy, fork, and run at their own risk.
 
-Without a running Ollama server, **Start is disabled** and the UI stays locked.
+The **author (Philip Santiago)** and the **implementer (Grok / xAI)** take **no responsibility** for misuse, misappropriation, copies, derivatives, damage to hardware or data, privacy outcomes, or any other consequence of using this software. You are solely responsible for how you deploy it, which models you download, and whether that use is lawful.
 
-- Install from [ollama.com](https://ollama.com). This repo’s `vendor/ollama/` is **not** what clones get.
-- You must run `ollama serve` so the API is on **`127.0.0.1:11434`**. A different host/port will look like “Ollama is not running.”
-- Pull at least one **chat/instruct** model before Start, e.g. `ollama pull qwen2.5:7b`. The dropdown is `ollama list`, nothing more.
-- **Hardware:** a 7B-class model wants on the order of **8 GB+ RAM** free; 14B needs more; 70B can lock up a laptop. Disk for the pull is several GB. Slow models make the “thinking…” fillers fire often.
-- Embedding-only, vision-only, or “reasoning/thinking” models often **will not** behave as a spoken assistant. English vs other languages is the model’s problem, not Jarvis’s.
-- Local Ollama has **no token bill**. You still pay in RAM, disk, heat, and time.
+See also [LICENSE](LICENSE) (MIT). Model files you add have **their own licenses**; this repo’s MIT license does not cover them.
 
-### Piper voices (ONNX)
+### No moderation — use at your own risk
 
-The voice dropdown is **every `*.onnx` file in `models/piper/`**. That is not a quality filter.
+This project does **not** apply content moderation, safety filters, or profanity checks on wake words, pre-canned phrases, transcripts, or model replies.
 
-- Use voices from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) only. Other Hugging Face TTS repos (Coqui, StyleTTS, raw PyTorch, etc.) **will not load**.
-- Each voice is **two files with the same stem**: `name.onnx` **and** `name.onnx.json`. Missing JSON → Piper fails at speak-time.
-- Files are large (often **50–80 MB** per medium voice). Do not commit them; they are gitignored.
-- **Speaker id** (`voice_speaker`) only applies to multi-speaker models (e.g. LibriTTS-R has hundreds of ids). A single-speaker voice should stay at `0`. A wrong id can crash or sound broken.
-- Language of the ONNX file should match what you speak. An `en_US` voice reading other languages will sound wrong; that is expected.
-- A corrupt or incomplete download will fail when the assistant tries to talk, not when you pick it in the list.
+You can set any wake word, any phrase list, and any local LLM. That includes vulgar, sexual, hateful, or otherwise inappropriate wording and “joke” names (for example **Michael Hunt**, **Al Coholic**, and the like). Speech-to-text will transcribe what was said; Piper will speak what the model returns.
 
-### Whisper
+The repository owner and implementer are **not liable** for such misuse, for copies of this software used that way, or for any context users generate. If you run it, you own the output and the consequences. **Use at your own risk.**
 
-`bin/whisper-cli` must be a **whisper.cpp** binary, and `models/whisper/` must hold a **ggml** checkpoint (`ggml-base.en.bin` is the example). Other `.bin` formats will not work.
+### This is not a complete product in the clone
 
-`scripts/download-models.sh` only fetches **one** example Whisper file and **one** example Piper voice so the folders exist. Replace them whenever you like.
+The git tree is **plumbing**. It will not speak until **you** install and run the rest:
 
-## Pre-canned speech
+- Python 3.9+
+- [Ollama](https://ollama.com) with `ollama serve` on `127.0.0.1:11434`
+- At least one **chat/instruct** LLM (`ollama pull …`)
+- `whisper-cli` in `bin/` ([whisper.cpp](https://github.com/ggml-org/whisper.cpp))
+- A whisper.cpp **ggml** file in `models/whisper/`
+- Piper **ONNX + matching `.onnx.json`** in `models/piper/` (from [piper-voices](https://huggingface.co/rhasspy/piper-voices) only)
+- A microphone
+- **macOS:** Terminal/Python mic permission
+- **Linux:** `alsa-utils`, `sox`, and `pw-play` / `paplay` / `aplay`
 
-Spoken lines that are **not** from the LLM live in `phrases/` as JSON, and you can edit them in the UI under **Admin → Pre-canned speech**.
+Without Ollama running, **Start is locked**. Without models in those folders, the dropdowns are empty or speak-time fails. Defaults in `claire.conf.example` are **examples**, not a supported catalog. Swap Piper, Whisper, and Ollama models as you like; the UI only lists what you already downloaded.
 
-| File | When it is used |
-|---|---|
-| `phrases/thinking.json` | Waiting on the model |
-| `phrases/missing_wake.json` | Transcript did not contain the wake word |
+### Know the limits of your machine
 
-Each entry is `{"text": "...", "preferred": false}`. Mark **Preferred** in Admin to boost those lines.
+- **Preferred:** a **GPU** (or Apple Silicon with enough unified memory) for the LLM. That is the intended experience.
+- **Supported:** **CPU-only** Ollama will run, but replies are often slow, fillers will fire constantly, and the voice loop feels **undesirable**. Do not expect a 7B–14B chat model to feel snappy on a weak CPU.
+- A 7B-class model wants on the order of **8 GB+ RAM** free; 14B needs more; 70B can lock the machine. Disk for each pull is several GB.
+- Embedding-only, vision-only, or long “reasoning” models are a poor fit for spoken back-and-forth.
 
-- **Flat** (default): every line has equal odds (`time % count`).
-- **Preferred weighting:** slider 0–100. **50%** means a preferred line is heard about **2×** as often as a non-preferred one. **100%** uses preferred lines only (falls back to all if none are marked). **25%** is a 1.5× boost.
+## LLMs used in this project
 
-New lines default to **not preferred**. Check **Preferred** on a line to boost it. The slider is **0%** by default (original equal pick). Above 0% preferred lines are chosen more often (**50%** ≈ 2×, **100%** = preferred only). Sixteen starter lines are marked preferred; add more whenever you like.
+These are Ollama models **we have actually run** here. They are **not** shipped in git. Pull only what your machine can hold. Listing a model does not mean we support every update or every other pull from the Ollama library.
 
-`{name}` in missing-wake text becomes the wake word (with a breath pause). `...` is a pause.
+| Ollama name | Publisher | Role here | Notes |
+|---|---|---|---|
+| `qwen2.5:7b` | Alibaba (Qwen) | Default example | Solid spoken chat; wants ~8 GB+ RAM (GPU / Apple Silicon preferred) |
+| `llama3.2:3b-instruct-q8_0` | Meta | Earlier default / rollback | Smaller and snappier; weaker answers |
+| `mistral-nemo` | Mistral AI + NVIDIA | Larger assistant | ~12B; better on GPU; CPU is often too slow |
 
-You can edit Admin while the assistant is running. Leaving Admin with unsaved changes asks to **store** them; they apply only after **Stop** and **Start**. A banner at the top warns when stored settings differ from the running session.
+Install one with `ollama pull <name>`, then pick it in the UI. CPU-only will run but is usually an **undesirable** voice experience.
+
+### Whisper (STT) used here
+
+whisper.cpp **ggml** files only. Put them in `models/whisper/` and point `whisper_model` at the file. You still need `bin/whisper-cli` built for your OS.
+
+| File | Source | Role here | Notes |
+|---|---|---|---|
+| `ggml-base.en.bin` | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) | Default English STT | Example download in `scripts/download-models.sh`. English-only. Larger ggml files (`small`, `medium`) are slower and not required. |
+
+Other Whisper formats (OpenAI `.pt`, Hugging Face Transformers, etc.) **will not load**.
+
+### Piper voices (TTS) used here
+
+Piper **ONNX** from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) only. Each voice needs **both** `name.onnx` and `name.onnx.json` in `models/piper/`. The UI lists whatever `.onnx` files are in that folder.
+
+| Voice (file stem) | Locale | Role here | Notes |
+|---|---|---|---|
+| `en_US-libritts_r-medium` | US English | Original / example | Multi-speaker; `voice_speaker` picks among hundreds of ids (default `0`). Fetched by `scripts/download-models.sh`. |
+| `en_GB-jenny_dioco-medium` | UK English | Added from HF sample | Single-speaker; keep speaker id `0`. |
+| `en_GB-northern_english_male-medium` | UK English | Added from HF sample | Single-speaker. |
+| `en_US-amy-medium` | US English | Added from HF sample | Single-speaker. |
+
+These files are **gitignored** (often 50–80 MB each). Drop in replacements from the Piper repo; random Hugging Face TTS packages will not work. Language of the voice should match what you speak.
 
 ## Security
 
-This app is meant to run **on your machine**, not as a public website.
+Run this **on your machine**, not as a public website.
 
-- Copy `.env.example` → `.env` if you need env overrides. **Never commit** `.env`, `jarvis.conf`, `memory/`, `models/`, or `bin/`.
-- The UI binds **`127.0.0.1`** by default so only you can open it. Do not set `JARVIS_UI_HOST=0.0.0.0` unless you accept that anyone on the network can start/stop the mic and the assistant.
-- There are **no cloud API keys** in this project. Do not paste OpenAI/Anthropic keys here; Ollama is local. If you add keys later, put them only in `.env`.
-- `src/voice_chat3.linux.py` is an **old snapshot** with hardcoded workstation paths. It is not used. Ignore it.
-- Model files you download have **their own licenses**. This repo’s MIT license does not cover them.
+- Copy `.env.example` → `.env` if you need env overrides. **Never commit** `.env`, `claire.conf`, `memory/`, `models/`, or `bin/`.
+- The UI binds **`127.0.0.1`** by default. Do not set `CLAIRE_UI_HOST=0.0.0.0` unless you accept that anyone on the LAN can start/stop the mic and the assistant.
+- There are **no cloud API keys** in this project. Keep it that way, or put secrets only in `.env`.
 
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR_USER/Jarvis.git
-cd Jarvis
+git clone https://github.com/YOUR_USER/CLAIRE.git
+cd CLAIRE
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp jarvis.conf.example jarvis.conf
+cp claire.conf.example claire.conf
 cp .env.example .env
 chmod +x scripts/download-models.sh
 ./scripts/download-models.sh
 ```
 
-Put a `whisper-cli` binary in `bin/` ([whisper.cpp](https://github.com/ggml-org/whisper.cpp) — build for your OS). Piper’s CLI is `venv/bin/piper` from `piper-tts`.
-
-Pull an LLM (once Ollama is installed):
+Put `whisper-cli` in `bin/`. Piper’s CLI is `venv/bin/piper` from `pip`. Then:
 
 ```bash
 ollama pull qwen2.5:7b
@@ -119,74 +193,76 @@ Add your user to the `audio` group if capture is silent, then log out and back i
 
 ## Run
 
-Terminal 1 — Ollama:
+Terminal 1:
 
 ```bash
 ollama serve
 ```
 
-Terminal 2 — UI (from the repo, venv on):
+Terminal 2 (venv on):
 
 ```bash
 source venv/bin/activate
 python src/web.py
 ```
 
-Open [http://127.0.0.1:8742](http://127.0.0.1:8742). If Ollama is down, the UI locks except **Shut down**. Pick a model and Piper voice, then **Start**. **Record** / **Stop recording** take a clip. **Interrupt** stops speech.
+Open [http://127.0.0.1:8742](http://127.0.0.1:8742). Hamburger → **Admin settings** for models, paths, and canned speech. **Start**, then **Record** / **Stop recording**. **Interrupt** stops speech.
 
-Keyboard-only (real TTY):
+The keyboard text CLI (`python src/comms.py`) is parked. Use the web UI.
+
+Offline check (no mic, no generate):
 
 ```bash
-python src/comms.py
+python scripts/smoke_test.py
 ```
 
-- **Tab** start/stop recording  
-- **F12** interrupt  
-- **Esc** quit when idle  
 - Say the **wake word** plus your request  
 - **scratch that, scratch that** starts a new memory session  
 - Spoken **exit** / **goodbye** / **shut down** quits  
 
 ## Config
 
-Copy `jarvis.conf.example` → `jarvis.conf` (gitignored). The UI writes that file. Env vars `JARVIS_*` override it.
+Copy `claire.conf.example` → `claire.conf` (gitignored). The UI writes that file. Env vars `CLAIRE_*` override it.
 
 | Setting | Env | Default |
 |---|---|---|
-| Ollama model | `JARVIS_LLM_MODEL` | `qwen2.5:7b` |
-| Piper voice | `JARVIS_VOICE_MODEL` | `models/piper/en_US-libritts_r-medium.onnx` |
-| Piper speaker id | `JARVIS_VOICE_SPEAKER` | `0` |
-| Whisper binary | `JARVIS_WHISPER_BIN` | `bin/whisper-cli` |
-| Whisper model | `JARVIS_WHISPER_MODEL` | `models/whisper/ggml-base.en.bin` |
-| Piper binary | `JARVIS_PIPER_BIN` | `venv/bin/piper` |
-| Memory directory | `JARVIS_MEMORY_DIR` | `memory/` |
-| Microphone (Linux) | `JARVIS_MIC_DEVICE` | auto (`default` / USB) |
-| Wake word | `JARVIS_WAKE_WORD` | `friday` |
-| Record key | `JARVIS_RECORD_KEY` | `tab` |
-| Interrupt key | `JARVIS_INTERRUPT_KEY` | `f12` |
-| Quit key | `JARVIS_QUIT_KEY` | `esc` |
-| Spoken quit phrases | `JARVIS_QUIT_PHRASES` | `exit,goodbye,shut down` |
-| New-session phrase | `JARVIS_NEW_SESSION_PHRASE` | `scratch that` |
+| Ollama model | `CLAIRE_LLM_MODEL` | `qwen2.5:7b` |
+| Piper voice | `CLAIRE_VOICE_MODEL` | `models/piper/en_US-libritts_r-medium.onnx` |
+| Piper speaker id | `CLAIRE_VOICE_SPEAKER` | `0` |
+| Whisper binary | `CLAIRE_WHISPER_BIN` | `bin/whisper-cli` |
+| Whisper model | `CLAIRE_WHISPER_MODEL` | `models/whisper/ggml-base.en.bin` |
+| Piper binary | `CLAIRE_PIPER_BIN` | `venv/bin/piper` |
+| Memory directory | `CLAIRE_MEMORY_DIR` | `memory/` |
+| Microphone (Linux) | `CLAIRE_MIC_DEVICE` | auto |
+| Wake word | `CLAIRE_WAKE_WORD` | `claire` |
+| Preferred mix (%) | `CLAIRE_PREFERRED_BOOST` | `0` (equal pick) |
+| Wake-word match (%) | `CLAIRE_WAKE_FUZZ` | `85` (50–100, fuzzy) |
 
-Drop extra Piper `.onnx` files in `models/piper/` and extra Whisper `ggml-*.bin` in `models/whisper/`, then refresh the UI. Pull more LLMs with `ollama pull`. Catalogs: [Piper voices](https://huggingface.co/rhasspy/piper-voices), [Ollama library](https://ollama.com/library), [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp). See **Warnings** above: listing a file does not mean it is tested.
+Drop extra Piper `.onnx` files in `models/piper/` and extra Whisper `ggml-*.bin` in `models/whisper/`, then refresh. Pull more LLMs with `ollama pull`. Catalogs: [Piper](https://huggingface.co/rhasspy/piper-voices), [Ollama](https://ollama.com/library), [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp). Listing a file does not mean it is tested.
 
-If Record is silent, set **Microphone device** in Admin (`default`, `pulse`, `plughw:1,0`). Check `arecord -l` / `arecord -L`. After several consecutive empty recordings, the UI warns that the mic may need assignment — or that nobody spoke.
+Piper needs **both** `name.onnx` and `name.onnx.json`. Speaker id only matters for multi-speaker voices.
+
+If Record is silent, set **Microphone device** in Admin. After several consecutive empty recordings, the UI may warn — or you simply were not speaking.
+
+## Pre-canned speech
+
+Edit in **Admin** (add on top, then **Showing Thinking Entries** / **Show Wake-word Entries**), or in `phrases/thinking.json` and `phrases/missing_wake.json`. New lines default to not preferred; tick **Preferred** to boost. Slider **0%** = original equal pick; **50%** ≈ preferred 2×; **100%** = preferred only. `{name}` in missing-wake lines is the wake word. Stop/Start to apply if the assistant is already running.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/web.py` | FastAPI UI (`http://127.0.0.1:8742`) |
+| `src/web.py` | FastAPI UI |
 | `src/ui/index.html` | Config page |
 | `src/comms.py` | Mic, Whisper, Ollama, Piper, loop |
-| `src/voice_chat3.py` | Wrapper for `comms.main()` |
-| `jarvis.conf.example` | Settings template |
-| `scripts/download-models.sh` | Whisper + default Piper voice |
-| `phrases/thinking.json` | Thinking lines (edit in Admin) |
-| `phrases/missing_wake.json` | Missing-wake lines (`{name}` = wake word) |
-| `memory/` | Session JSON (local only) |
-| `models/` | Whisper + Piper files (local only) |
-| `bin/whisper-cli` | You provide this binary |
+| `pyproject.toml` | Python package metadata and default dependencies |
+| `requirements.txt` | Same dependencies for `pip install -r` |
+| `claire.conf.example` | Settings template |
+| `.env.example` | Optional env overrides |
+| `scripts/download-models.sh` | Example Whisper + Piper files only |
+| `scripts/smoke_test.py` | Offline import / wake / HTTP checks |
+| `phrases/*.json` | Thinking and missing-wake lines |
+| `memory/`, `models/`, `bin/` | Local only — not in git |
 
 ## License
 

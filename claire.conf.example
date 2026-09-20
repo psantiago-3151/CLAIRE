@@ -1,9 +1,9 @@
-# Copy to jarvis.conf (gitignored) and edit.
-# Env vars (JARVIS_*) override these.
+# Copy to claire.conf (gitignored) and edit.
+# Env vars CLAIRE_* override these.
 # Paths may be relative to the project root.
 #
 # These names are examples only. Swap the Ollama model, Piper .onnx, and
-# Whisper ggml file after you download them. Jarvis only lists what is
+# Whisper ggml file after you download them. CLAIRE only lists what is
 # already on disk / in Ollama; it does not guarantee any given combo.
 
 # Ollama model
@@ -27,11 +27,12 @@ name_breath_secs=0.35
 # 0 = original equal pick; 50 = preferred ~2×; 100 = preferred only
 phrase_select_mode=flat
 preferred_boost_pct=0
+wake_fuzz_threshold=85
 
 # Wake word (matched anywhere in the transcript)
-wake_word=friday
+wake_word=claire
 
-# sshkeyboard names: tab, space, f8, f12, esc, ...
+# Keyboard names for the parked text CLI. Unused while the web UI is the control surface.
 record_key=tab
 interrupt_key=f12
 quit_key=esc

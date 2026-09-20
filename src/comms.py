@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Friday: mic, STT, LLM, TTS, and the voice loop.
+"""CLAIRE: mic, STT, LLM, TTS, and the voice loop.
 
-Run: ./comms.py  (from src/, venv active)
+Control surface: python src/web.py  (venv active)
+The sshkeyboard text CLI is parked until it matches the web UI.
 """
 import fcntl
 import glob
@@ -20,10 +21,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import ollama
+from rapidfuzz import fuzz
 from sshkeyboard import listen_keyboard, stop_listening
 
 IS_MAC = sys.platform == "darwin"
 ROOT = Path(__file__).resolve().parent.parent
+# Parked: Tab / F12 / Esc via sshkeyboard. Flip True when the text CLI
+# matches the web UI. Until then, python src/web.py is the only control surface.
+CLI_INTERACTIVE = False
 try:
     from dotenv import load_dotenv
 
@@ -55,16 +60,27 @@ def _resolve_path(value: str) -> str:
     return str(path)
 
 
-CONF = _load_conf(ROOT / "jarvis.conf")
+def _discover_conf_path() -> Path:
+    return ROOT / "claire.conf"
+
+
+CONF_PATH = _discover_conf_path()
+CONF = _load_conf(CONF_PATH)
+
+
+def _env_lookup(env_name: str) -> str:
+    if os.environ.get(env_name, "") != "":
+        return os.environ[env_name]
+    return ""
 
 
 def _setting(env_name: str, conf_key: str, default: str, *, path: bool = False) -> str:
-    if os.environ.get(env_name, "") != "":
-        raw = os.environ[env_name]
-    elif CONF.get(conf_key, "") != "":
-        raw = CONF[conf_key]
-    else:
-        raw = default
+    raw = _env_lookup(env_name)
+    if raw == "":
+        if CONF.get(conf_key, "") != "":
+            raw = CONF[conf_key]
+        else:
+            raw = default
     raw = str(raw).strip()
     if path or raw.startswith("~") or "/" in raw or "\\" in raw:
         return _resolve_path(raw)
@@ -86,6 +102,7 @@ MISSING_WAKE_PHRASES = list(_MISSING_WAKE_DEFAULTS)
 FILLER_ENTRIES = [{"text": t, "preferred": False} for t in _FILLER_DEFAULTS]
 MISSING_WAKE_ENTRIES = [{"text": t, "preferred": False} for t in _MISSING_WAKE_DEFAULTS]
 PHRASE_SELECT_MODE = "flat"
+WAKE_FUZZ_THRESHOLD = 85.0
 PREFERRED_BOOST_PCT = 0.0
 
 
@@ -241,25 +258,32 @@ def _secs(env_name: str, conf_key: str, default: str) -> float:
 
 
 def _load_phrase_mode():
-    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT
-    mode = _setting("JARVIS_PHRASE_MODE", "phrase_select_mode", "flat").lower()
+    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT, WAKE_FUZZ_THRESHOLD
+    mode = _setting("CLAIRE_PHRASE_MODE", "phrase_select_mode", "flat").lower()
     PHRASE_SELECT_MODE = mode if mode in ("flat", "preferred") else "flat"
     try:
         PREFERRED_BOOST_PCT = max(
             0.0,
-            min(100.0, float(_setting("JARVIS_PREFERRED_BOOST", "preferred_boost_pct", "0"))),
+            min(100.0, float(_setting("CLAIRE_PREFERRED_BOOST", "preferred_boost_pct", "0"))),
         )
     except ValueError:
         PREFERRED_BOOST_PCT = 0.0
+    try:
+        WAKE_FUZZ_THRESHOLD = max(
+            50.0,
+            min(100.0, float(_setting("CLAIRE_WAKE_FUZZ", "wake_fuzz_threshold", "85"))),
+        )
+    except ValueError:
+        WAKE_FUZZ_THRESHOLD = 85.0
 
 
 def _load_wait_secs():
     global THINKING_INTERVAL_SECS, BREATH_SECS
     THINKING_INTERVAL_SECS = _secs(
-        "JARVIS_THINKING_INTERVAL_SECS", "thinking_interval_secs", "5"
+        "CLAIRE_THINKING_INTERVAL_SECS", "thinking_interval_secs", "5"
     )
     try:
-        breath = float(_setting("JARVIS_NAME_BREATH_SECS", "name_breath_secs", "0.35"))
+        breath = float(_setting("CLAIRE_NAME_BREATH_SECS", "name_breath_secs", "0.35"))
     except ValueError:
         breath = 0.35
     BREATH_SECS = min(MAX_BREATH_SECS, max(MIN_BREATH_SECS, breath))
@@ -284,40 +308,40 @@ def _validate_wait_secs(current: dict):
     current["name_breath_secs"] = f"{breath:g}"
 
 
-LLM_MODEL = _setting("JARVIS_LLM_MODEL", "llm_model", "qwen2.5:7b")
+LLM_MODEL = _setting("CLAIRE_LLM_MODEL", "llm_model", "qwen2.5:7b")
 VOICE_MODEL = _setting(
-    "JARVIS_VOICE_MODEL",
+    "CLAIRE_VOICE_MODEL",
     "voice_model",
     str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx"),
     path=True,
 )
-VOICE_SPEAKER = int(_setting("JARVIS_VOICE_SPEAKER", "voice_speaker", "0"))
+VOICE_SPEAKER = int(_setting("CLAIRE_VOICE_SPEAKER", "voice_speaker", "0"))
 WHISPER_BIN = _setting(
-    "JARVIS_WHISPER_BIN",
+    "CLAIRE_WHISPER_BIN",
     "whisper_bin",
     str(ROOT / "bin" / "whisper-cli"),
     path=True,
 )
 WHISPER_MODEL = _setting(
-    "JARVIS_WHISPER_MODEL",
+    "CLAIRE_WHISPER_MODEL",
     "whisper_model",
     str(ROOT / "models" / "whisper" / "ggml-base.en.bin"),
     path=True,
 )
 PIPER_BIN = _setting(
-    "JARVIS_PIPER_BIN",
+    "CLAIRE_PIPER_BIN",
     "piper_bin",
     str(ROOT / "venv" / "bin" / "piper"),
     path=True,
 )
 MEMORY_DIR = _setting(
-    "JARVIS_MEMORY_DIR",
+    "CLAIRE_MEMORY_DIR",
     "memory_dir",
     str(ROOT / "memory"),
     path=True,
 )
-MIC_DEVICE = _setting("JARVIS_MIC_DEVICE", "mic_device", "")
-AI_NAME = _setting("JARVIS_WAKE_WORD", "wake_word", "friday").lower()
+MIC_DEVICE = _setting("CLAIRE_MIC_DEVICE", "mic_device", "")
+AI_NAME = _setting("CLAIRE_WAKE_WORD", "wake_word", "claire").lower()
 _mic_cache = {"at": 0.0, "status": None}
 
 
@@ -401,48 +425,48 @@ def microphone_status(*, fresh: bool = False) -> dict:
     _mic_cache["status"] = status
     _mic_cache["at"] = now
     return status
-RECORD_KEY = _setting("JARVIS_RECORD_KEY", "record_key", "tab").lower()
-INTERRUPT_KEY = _setting("JARVIS_INTERRUPT_KEY", "interrupt_key", "f12").lower()
-QUIT_KEY = _setting("JARVIS_QUIT_KEY", "quit_key", "esc").lower()
+RECORD_KEY = _setting("CLAIRE_RECORD_KEY", "record_key", "tab").lower()
+INTERRUPT_KEY = _setting("CLAIRE_INTERRUPT_KEY", "interrupt_key", "f12").lower()
+QUIT_KEY = _setting("CLAIRE_QUIT_KEY", "quit_key", "esc").lower()
 QUIT_PHRASES = [
     p.strip().lower()
     for p in _setting(
-        "JARVIS_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
+        "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
     ).split(",")
     if p.strip()
 ]
 NEW_SESSION_PHRASE = _setting(
-    "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
+    "CLAIRE_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
 ).lower()
 _load_wait_secs()
 _load_phrase_mode()
 _load_phrases()
 WAKE_PREFIXES = ["hey", "ok", "okay", "please", "yo", "hi", "hello"]
 
-CONF_PATH = ROOT / "jarvis.conf"
 CONFIG_FIELDS = [
-    {"key": "llm_model", "env": "JARVIS_LLM_MODEL", "label": "Ollama model", "group": "models", "ui": "visible", "default": "qwen2.5:7b"},
-    {"key": "voice_model", "env": "JARVIS_VOICE_MODEL", "label": "Piper voice", "group": "models", "ui": "visible", "default": "models/piper/en_US-libritts_r-medium.onnx"},
-    {"key": "voice_speaker", "env": "JARVIS_VOICE_SPEAKER", "label": "Speaker id", "group": "models", "ui": "admin", "default": "0"},
-    {"key": "whisper_bin", "env": "JARVIS_WHISPER_BIN", "label": "Whisper binary", "group": "models", "ui": "admin", "default": "bin/whisper-cli"},
-    {"key": "whisper_model", "env": "JARVIS_WHISPER_MODEL", "label": "Whisper model", "group": "models", "ui": "admin", "default": "models/whisper/ggml-base.en.bin"},
-    {"key": "piper_bin", "env": "JARVIS_PIPER_BIN", "label": "Piper binary", "group": "models", "ui": "admin", "default": "venv/bin/piper"},
-    {"key": "memory_dir", "env": "JARVIS_MEMORY_DIR", "label": "Memory directory", "group": "models", "ui": "admin", "default": "memory"},
-    {"key": "mic_device", "env": "JARVIS_MIC_DEVICE", "label": "Microphone device (Linux arecord; empty = auto)", "group": "models", "ui": "admin", "default": ""},
-    {"key": "thinking_interval_secs", "env": "JARVIS_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
-    {"key": "name_breath_secs", "env": "JARVIS_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
-    {"key": "phrase_select_mode", "env": "JARVIS_PHRASE_MODE", "label": "Phrase selection", "group": "models", "ui": "admin", "default": "flat"},
-    {"key": "preferred_boost_pct", "env": "JARVIS_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "0"},
-    {"key": "wake_word", "env": "JARVIS_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "friday"},
-    {"key": "record_key", "env": "JARVIS_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
-    {"key": "interrupt_key", "env": "JARVIS_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
-    {"key": "quit_key", "env": "JARVIS_QUIT_KEY", "label": "Quit key", "group": "runtime", "ui": "hidden", "default": "esc"},
-    {"key": "quit_phrases", "env": "JARVIS_QUIT_PHRASES", "label": "Spoken quit phrases", "group": "runtime", "ui": "visible", "default": "exit,goodbye,shut down"},
-    {"key": "new_session_phrase", "env": "JARVIS_NEW_SESSION_PHRASE", "label": "New session phrase", "group": "runtime", "ui": "visible", "default": "scratch that"},
+    {"key": "llm_model", "env": "CLAIRE_LLM_MODEL", "label": "Ollama model", "group": "models", "ui": "visible", "default": "qwen2.5:7b"},
+    {"key": "voice_model", "env": "CLAIRE_VOICE_MODEL", "label": "Piper voice", "group": "models", "ui": "visible", "default": "models/piper/en_US-libritts_r-medium.onnx"},
+    {"key": "voice_speaker", "env": "CLAIRE_VOICE_SPEAKER", "label": "Speaker id", "group": "models", "ui": "admin", "default": "0"},
+    {"key": "whisper_bin", "env": "CLAIRE_WHISPER_BIN", "label": "Whisper binary", "group": "models", "ui": "admin", "default": "bin/whisper-cli"},
+    {"key": "whisper_model", "env": "CLAIRE_WHISPER_MODEL", "label": "Whisper model", "group": "models", "ui": "admin", "default": "models/whisper/ggml-base.en.bin"},
+    {"key": "piper_bin", "env": "CLAIRE_PIPER_BIN", "label": "Piper binary", "group": "models", "ui": "admin", "default": "venv/bin/piper"},
+    {"key": "memory_dir", "env": "CLAIRE_MEMORY_DIR", "label": "Memory directory", "group": "models", "ui": "admin", "default": "memory"},
+    {"key": "mic_device", "env": "CLAIRE_MIC_DEVICE", "label": "Microphone device (Linux arecord; empty = auto)", "group": "models", "ui": "admin", "default": ""},
+    {"key": "thinking_interval_secs", "env": "CLAIRE_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
+    {"key": "name_breath_secs", "env": "CLAIRE_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
+    {"key": "phrase_select_mode", "env": "CLAIRE_PHRASE_MODE", "label": "Phrase selection", "group": "models", "ui": "admin", "default": "flat"},
+    {"key": "preferred_boost_pct", "env": "CLAIRE_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "0"},
+    {"key": "wake_fuzz_threshold", "env": "CLAIRE_WAKE_FUZZ", "label": "Wake-word match (%)", "group": "models", "ui": "admin", "default": "85"},
+    {"key": "wake_word", "env": "CLAIRE_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "claire"},
+    {"key": "record_key", "env": "CLAIRE_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
+    {"key": "interrupt_key", "env": "CLAIRE_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
+    {"key": "quit_key", "env": "CLAIRE_QUIT_KEY", "label": "Quit key", "group": "runtime", "ui": "hidden", "default": "esc"},
+    {"key": "quit_phrases", "env": "CLAIRE_QUIT_PHRASES", "label": "Spoken quit phrases", "group": "runtime", "ui": "visible", "default": "exit,goodbye,shut down"},
+    {"key": "new_session_phrase", "env": "CLAIRE_NEW_SESSION_PHRASE", "label": "New session phrase", "group": "runtime", "ui": "visible", "default": "scratch that"},
 ]
 _FIELD_KEYS = {f["key"] for f in CONFIG_FIELDS}
 
-CONF_TEMPLATE = """# Jarvis settings. Env vars (JARVIS_*) override these.
+CONF_TEMPLATE = """# CLAIRE settings. Env vars (CLAIRE_*) override these.
 # Paths may be relative to the project root.
 
 # Ollama model
@@ -466,11 +490,13 @@ name_breath_secs={name_breath_secs}
 # flat = equal odds; preferred = boost marked lines (0–100, 50 = 2×, 100 = only preferred)
 phrase_select_mode={phrase_select_mode}
 preferred_boost_pct={preferred_boost_pct}
+# Fuzzy wake-word match 50–100 (85 = default)
+wake_fuzz_threshold={wake_fuzz_threshold}
 
 # Wake word (matched anywhere in the transcript)
 wake_word={wake_word}
 
-# sshkeyboard names: tab, space, f8, f12, esc, ...
+# Keyboard names for the parked text CLI. Unused while the web UI is the control surface.
 record_key={record_key}
 interrupt_key={interrupt_key}
 quit_key={quit_key}
@@ -486,55 +512,55 @@ def reload_settings():
     global PIPER_BIN, MEMORY_DIR, MIC_DEVICE, AI_NAME, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
     global QUIT_PHRASES, NEW_SESSION_PHRASE, CURRENT_FILE
     global THINKING_INTERVAL_SECS, BREATH_SECS
-    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT
+    global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT, WAKE_FUZZ_THRESHOLD
     CONF = _load_conf(CONF_PATH)
-    LLM_MODEL = _setting("JARVIS_LLM_MODEL", "llm_model", "qwen2.5:7b")
+    LLM_MODEL = _setting("CLAIRE_LLM_MODEL", "llm_model", "qwen2.5:7b")
     VOICE_MODEL = _setting(
-        "JARVIS_VOICE_MODEL",
+        "CLAIRE_VOICE_MODEL",
         "voice_model",
         str(ROOT / "models" / "piper" / "en_US-libritts_r-medium.onnx"),
         path=True,
     )
-    VOICE_SPEAKER = int(_setting("JARVIS_VOICE_SPEAKER", "voice_speaker", "0"))
+    VOICE_SPEAKER = int(_setting("CLAIRE_VOICE_SPEAKER", "voice_speaker", "0"))
     WHISPER_BIN = _setting(
-        "JARVIS_WHISPER_BIN",
+        "CLAIRE_WHISPER_BIN",
         "whisper_bin",
         str(ROOT / "bin" / "whisper-cli"),
         path=True,
     )
     WHISPER_MODEL = _setting(
-        "JARVIS_WHISPER_MODEL",
+        "CLAIRE_WHISPER_MODEL",
         "whisper_model",
         str(ROOT / "models" / "whisper" / "ggml-base.en.bin"),
         path=True,
     )
     PIPER_BIN = _setting(
-        "JARVIS_PIPER_BIN",
+        "CLAIRE_PIPER_BIN",
         "piper_bin",
         str(ROOT / "venv" / "bin" / "piper"),
         path=True,
     )
     MEMORY_DIR = _setting(
-        "JARVIS_MEMORY_DIR",
+        "CLAIRE_MEMORY_DIR",
         "memory_dir",
         str(ROOT / "memory"),
         path=True,
     )
-    MIC_DEVICE = _setting("JARVIS_MIC_DEVICE", "mic_device", "")
+    MIC_DEVICE = _setting("CLAIRE_MIC_DEVICE", "mic_device", "")
     _mic_cache["status"] = None
-    AI_NAME = _setting("JARVIS_WAKE_WORD", "wake_word", "friday").lower()
-    RECORD_KEY = _setting("JARVIS_RECORD_KEY", "record_key", "tab").lower()
-    INTERRUPT_KEY = _setting("JARVIS_INTERRUPT_KEY", "interrupt_key", "f12").lower()
-    QUIT_KEY = _setting("JARVIS_QUIT_KEY", "quit_key", "esc").lower()
+    AI_NAME = _setting("CLAIRE_WAKE_WORD", "wake_word", "claire").lower()
+    RECORD_KEY = _setting("CLAIRE_RECORD_KEY", "record_key", "tab").lower()
+    INTERRUPT_KEY = _setting("CLAIRE_INTERRUPT_KEY", "interrupt_key", "f12").lower()
+    QUIT_KEY = _setting("CLAIRE_QUIT_KEY", "quit_key", "esc").lower()
     QUIT_PHRASES = [
         p.strip().lower()
         for p in _setting(
-            "JARVIS_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
+            "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
         ).split(",")
         if p.strip()
     ]
     NEW_SESSION_PHRASE = _setting(
-        "JARVIS_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
+        "CLAIRE_NEW_SESSION_PHRASE", "new_session_phrase", "scratch that"
     ).lower()
     _load_wait_secs()
     _load_phrase_mode()
@@ -562,7 +588,7 @@ def config_payload() -> dict:
             "default": field["default"],
             "env_value": env_value,
         })
-    wake = os.environ.get("JARVIS_WAKE_WORD") or file_vals["wake_word"]
+    wake = _env_lookup("CLAIRE_WAKE_WORD") or file_vals["wake_word"]
     return {"fields": fields, "wake_word": wake.lower()}
 
 
@@ -590,10 +616,20 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
     if boost < 0 or boost > 100:
         raise ValueError("preferred_boost_pct must be between 0 and 100")
     current["preferred_boost_pct"] = f"{boost:g}"
+    try:
+        fuzz_pct = float(current.get("wake_fuzz_threshold") or "85")
+    except ValueError as exc:
+        raise ValueError("wake_fuzz_threshold must be a number") from exc
+    if fuzz_pct < 50 or fuzz_pct > 100:
+        raise ValueError("wake_fuzz_threshold must be between 50 and 100")
+    current["wake_fuzz_threshold"] = f"{fuzz_pct:g}"
     for key in ("record_key", "interrupt_key", "quit_key"):
         current[key] = current[key].lower()
     current["wake_word"] = current["wake_word"].lower()
+    global CONF_PATH, CONF
+    CONF_PATH = ROOT / "claire.conf"
     CONF_PATH.write_text(CONF_TEMPLATE.format(**current), encoding="utf-8")
+    CONF = _load_conf(CONF_PATH)
     if apply:
         reload_settings()
     return current
@@ -690,8 +726,27 @@ def _wav_player(path: str):
     return None
 
 
+_ui_listener = None
+
+
+def set_ui_listener(fn):
+    """Web UI hook: called when Heard/Reply/speaking should refresh."""
+    global _ui_listener
+    _ui_listener = fn
+
+
+def notify_ui():
+    fn = _ui_listener
+    if not fn:
+        return
+    try:
+        fn()
+    except Exception:
+        pass
+
+
 def log(*args):
-    """Print even when sshkeyboard leaves stdout non-blocking."""
+    """Print even if stdout was left non-blocking."""
     msg = " ".join(str(a) for a in args) + "\n"
     data = msg.encode("utf-8", errors="replace")
     fd = sys.stdout.fileno()
@@ -807,7 +862,13 @@ class Comms:
             wf.writeframes(audio_bytes)
 
     def start_recording(self):
-        log("\n🎤 RECORDING... speak now! (press Tab to stop)")
+        if CLI_INTERACTIVE:
+            log(
+                f"\n🎤 RECORDING... speak now! "
+                f"(press {_key_label(RECORD_KEY)} to stop)"
+            )
+        else:
+            log("\n🎤 RECORDING... speak now!")
         for path in (self.tmp_raw, self.tmp_wav):
             if os.path.exists(path):
                 os.remove(path)
@@ -1014,46 +1075,55 @@ class Comms:
             return
         token = self._speech_id
         raw_spoken = tts_speak_text(spoken if spoken is not None else text)
+        self.speaking = True
+        notify_ui()
 
         if os.path.exists(self.tmp_tts):
             os.remove(self.tmp_tts)
 
         piper = self.piper_bin if os.path.isfile(self.piper_bin) else shutil.which("piper")
         used_piper = False
-        if piper and os.path.isfile(self.voice_model):
-            used_piper = self._synth_spoken(piper, raw_spoken, token)
+        try:
+            if piper and os.path.isfile(self.voice_model):
+                used_piper = self._synth_spoken(piper, raw_spoken, token)
 
-        if token != self._speech_id:
-            return
-
-        log(f"AI: {text}")
-        self.speaking = True
-        if used_piper:
-            player = _wav_player(self.tmp_tts)
-            if not player:
-                log("No WAV player found (afplay, pw-play, paplay, or aplay)")
-                self.speaking = False
+            if token != self._speech_id:
                 return
-            self.speak_process = subprocess.Popen(player)
-        elif IS_MAC:
-            slnc_ms = max(50, int(round(BREATH_SECS * 1000)))
-            say_text = raw_spoken.replace(BREATH_MARK, f" [[slnc {slnc_ms}]] ")
-            self.speak_process = subprocess.Popen(["say", say_text])
-        else:
-            log("No TTS backend available")
-            self.speaking = False
-            return
-        self.speak_process.wait()
-        if token == self._speech_id:
-            self.speaking = False
+
+            log(f"AI: {text}")
+            if used_piper:
+                player = _wav_player(self.tmp_tts)
+                if not player:
+                    log("No WAV player found (afplay, pw-play, paplay, or aplay)")
+                    return
+                self.speak_process = subprocess.Popen(player)
+            elif IS_MAC:
+                slnc_ms = max(50, int(round(BREATH_SECS * 1000)))
+                say_text = raw_spoken.replace(BREATH_MARK, f" [[slnc {slnc_ms}]] ")
+                self.speak_process = subprocess.Popen(["say", say_text])
+            else:
+                log("No TTS backend available")
+                return
+            self.speak_process.wait()
+        finally:
+            if token == self._speech_id:
+                self.speaking = False
+                notify_ui()
 
     def interrupt(self, silent: bool = False):
         self._speech_id += 1
-        if self.speaking and self.speak_process:
+        if self.speak_process:
             if not silent:
-                log(f"\n🛑 Speech interrupted ({_key_label(INTERRUPT_KEY)})")
-            self.speak_process.terminate()
-            self.speaking = False
+                if CLI_INTERACTIVE:
+                    log(f"\n🛑 Speech interrupted ({_key_label(INTERRUPT_KEY)})")
+                else:
+                    log("\n🛑 Speech interrupted")
+            try:
+                self.speak_process.terminate()
+            except Exception:
+                pass
+        self.speaking = False
+        notify_ui()
 
     def generate(self, prompt: str) -> str:
         return ollama.generate(model=self.llm_model, prompt=prompt)["response"]
@@ -1374,16 +1444,55 @@ def save_turn(turn: dict):
 memory = load_all_history()
 
 
+def _normalize_wake_text(text: str) -> str:
+    text = (text or "").casefold()
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+    text = text.replace("_", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def is_addressed(user_text: str) -> tuple:
     if not user_text:
         return False, ""
-    lower_text = user_text.lower()
-    if AI_NAME.lower() not in lower_text:
+    wake = _normalize_wake_text(AI_NAME)
+    norm = _normalize_wake_text(user_text)
+    if not wake:
         return False, user_text
-    clean = re.sub(rf"\b{AI_NAME}\b[.,!?]*\s*", " ", user_text, flags=re.IGNORECASE)
+
+    tokens = norm.split()
+    wake_n = max(1, len(wake.split()))
+    best = 0
+    start = None
+    width = wake_n
+    if wake_n == 1:
+        for i, tok in enumerate(tokens):
+            score = fuzz.ratio(wake, tok)
+            if score > best:
+                best, start, width = score, i, 1
+    else:
+        for i in range(0, max(0, len(tokens) - wake_n + 1)):
+            window = " ".join(tokens[i : i + wake_n])
+            score = fuzz.ratio(wake, window)
+            if score > best:
+                best, start, width = score, i, wake_n
+    partial = fuzz.partial_ratio(wake, norm) if norm else 0
+    if partial > best:
+        best = partial
+        if start is None and tokens:
+            start, width = 0, min(wake_n, len(tokens))
+    if best < WAKE_FUZZ_THRESHOLD:
+        return False, user_text
+
+    if start is not None and tokens:
+        remain = tokens[:start] + tokens[start + width :]
+        clean = " ".join(remain)
+    else:
+        clean = norm
     for prefix in WAKE_PREFIXES:
-        clean = re.sub(rf"\b{prefix}\b[.,!?]*\s+", " ", clean, flags=re.IGNORECASE)
-    clean = clean.strip()
+        pref = _normalize_wake_text(prefix)
+        if pref:
+            clean = re.sub(rf"\b{re.escape(pref)}\b\s*", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
     if clean:
         clean = clean[0].upper() + clean[1:]
     else:
@@ -1408,39 +1517,83 @@ def on_key_press(key):
         log(f"handler error: {type(exc).__name__}: {exc}")
 
 
-def process_utterance(user_text: str) -> dict:
-    global stop_requested, memory
-    if not user_text:
-        return {"ok": False, "action": "empty", "heard": "", "message": "No audio captured"}
+def _quit_requested(user_text: str) -> bool:
+    norm = _normalize_wake_text(user_text)
+    if not norm:
+        return False
+    compact = norm.replace(" ", "")
+    for phrase in QUIT_PHRASES:
+        target = _normalize_wake_text(phrase)
+        if not target:
+            continue
+        if re.search(rf"\b{re.escape(target)}\b", norm):
+            return True
+        if target.replace(" ", "") and target.replace(" ", "") in compact:
+            return True
+        parts = target.split()
+        tokens = norm.split()
+        width = max(1, len(parts))
+        if width == 1:
+            for tok in tokens:
+                if fuzz.ratio(target, tok) >= WAKE_FUZZ_THRESHOLD:
+                    return True
+        else:
+            for i in range(0, max(0, len(tokens) - width + 1)):
+                window = " ".join(tokens[i : i + width])
+                if fuzz.ratio(target, window) >= WAKE_FUZZ_THRESHOLD:
+                    return True
+    return False
 
-    if any(w in user_text.lower() for w in QUIT_PHRASES):
+
+def process_utterance(user_text: str, on_result=None) -> dict:
+    """Handle one transcript. `on_result` is called with the UI payload
+    before Piper starts so Heard/Reply can paint while speech plays.
+    """
+    global stop_requested, memory
+
+    def emit(result: dict) -> dict:
+        if on_result:
+            try:
+                on_result(result)
+            except Exception:
+                pass
+        return result
+
+    if not user_text:
+        return emit({"ok": False, "action": "empty", "heard": "", "message": "No audio captured"})
+
+    if _quit_requested(user_text):
+        log("Quit phrase heard — shutting down")
+        result = emit({"ok": True, "action": "quit", "heard": user_text, "reply": "Goodbye!"})
         comms.speak("Goodbye!")
         stop_requested = True
-        return {"ok": True, "action": "quit", "heard": user_text, "reply": "Goodbye!"}
+        return result
 
     addressed, clean = is_addressed(user_text)
     if not addressed:
         msg, spoken = missing_wake_reply()
         log(msg)
-        comms.speak(msg, spoken=spoken)
-        return {
+        result = emit({
             "ok": False,
             "action": "ignored",
             "heard": user_text,
             "message": msg,
             "reply": msg,
-        }
+        })
+        comms.speak(msg, spoken=spoken)
+        return result
 
     if is_double_scratch_that(user_text):
         rename_current_and_start_new()
         memory.clear()
-        comms.speak("New session started.")
-        return {
+        result = emit({
             "ok": True,
             "action": "new_session",
             "heard": user_text,
             "reply": "New session started.",
-        }
+        })
+        comms.speak("New session started.")
+        return result
 
     name = AI_NAME.capitalize()
     prompt = (
@@ -1462,12 +1615,21 @@ def process_utterance(user_text: str) -> dict:
         f"User: {clean}\n{name}:"
     )
 
+    emit({"ok": True, "action": "thinking", "heard": user_text, "message": "Thinking…"})
     response = comms.generate_with_fillers(prompt)
     turn = {"user": user_text, "ai": response}
     memory.append(turn)
     save_turn(turn)
+    result = emit({
+        "ok": True,
+        "action": "reply",
+        "heard": user_text,
+        "reply": response,
+        "message": "Speaking",
+        "clean": clean,
+    })
     comms.speak(response)
-    return {"ok": True, "action": "reply", "heard": user_text, "reply": response, "clean": clean}
+    return result
 
 
 def _on_key_press(key):
@@ -1491,6 +1653,13 @@ def _on_key_press(key):
 
 
 def main():
+    if not CLI_INTERACTIVE:
+        print("CLAIRE is controlled from the web UI.")
+        print("  python src/web.py")
+        print("  http://127.0.0.1:8742")
+        print("The text CLI is parked until it matches the web UI.")
+        return
+
     print(f"Loaded full conversation history: {len(memory)} turns total")
     print("\n" + "=" * 60)
     print("LOCAL VOICE AI – FINAL WORKING")

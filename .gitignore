@@ -19,6 +19,7 @@ models/
 *.raw
 
 # Machine-specific settings
+claire.conf
 jarvis.conf
 llm.conf
 .env

@@ -22,11 +22,11 @@
     },
     {
       "text": "I'm pondering...",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "contemplating on your question!",
-      "preferred": true
+      "preferred": false
     },
     {
       "text": "give me a moment",
@@ -38,7 +38,7 @@
     },
     {
       "text": "gathering my thoughts...",
-      "preferred": false
+      "preferred": true
     },
     {
       "text": "Crunching the numbers...",
@@ -50,6 +50,10 @@
     },
     {
       "text": "hmm.. Interesting",
+      "preferred": false
+    },
+    {
+      "text": "hhhhmmmmmm......",
       "preferred": false
     }
   ]

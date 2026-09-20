@@ -1,1 +1,0 @@
-# Moved to thinking.json. This file is only used if the JSON is missing.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Jarvis</title>
+  <title>CLAIRE</title>
   <style>
     :root {
       --bg: #101218;
@@ -40,6 +40,13 @@
       letter-spacing: 0.04em;
       margin: 0;
       font-size: 2rem;
+    }
+    .brand {
+      margin: 4px 0 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
     .header-tools {
       display: flex;
@@ -149,24 +156,28 @@
     }
     .menu[hidden] { display: none; }
     .menu-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--ink);
-      font-size: 0.92rem;
-      cursor: pointer;
-    }
-    .menu-item + .menu-item { margin-top: 10px; }
-    button.menu-item {
+      display: block;
       width: 100%;
-      border: 1px solid var(--stop);
+      border: 1px solid var(--line);
       background: transparent;
-      color: #f0c2ba;
+      color: var(--ink);
       border-radius: 8px;
       padding: 8px 10px;
       text-align: left;
       font: inherit;
+      font-size: 0.92rem;
+      cursor: pointer;
     }
+    .menu-item + .menu-item { margin-top: 10px; }
+    .menu-item[aria-pressed="true"] {
+      border-color: var(--brass-dim);
+      color: var(--brass);
+    }
+    .menu-item.danger {
+      border-color: var(--stop);
+      color: #f0c2ba;
+    }
+    .ops { margin: 0 0 8px; }
     .power {
       width: 100%;
       border: 0;
@@ -178,7 +189,7 @@
       cursor: pointer;
       background: var(--go);
       color: #1a140c;
-      margin-top: 8px;
+      margin-top: 0;
     }
     .power.running {
       background: var(--stop);
@@ -205,7 +216,7 @@
     .row button:disabled { opacity: 0.4; cursor: not-allowed; }
     .row button.hot { border-color: var(--stop); color: #f0c2ba; }
     .status {
-      margin: 18px 0 0;
+      margin: 14px 0 0;
       padding: 14px 16px;
       background: var(--panel);
       border: 1px solid var(--line);
@@ -213,13 +224,79 @@
     }
     .status p { margin: 0 0 6px; color: var(--muted); font-size: 0.9rem; }
     .status .heard, .status .reply { color: var(--ink); }
+    .status .reply-box {
+      margin: 4px 0 0;
+      max-height: calc(1.45em * 6);
+      overflow-y: auto;
+      overflow-x: hidden;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding-right: 8px;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .status .reply-box::-webkit-scrollbar { width: 8px; }
+    .status .reply-box::-webkit-scrollbar-track { background: transparent; }
+    .status .reply-box::-webkit-scrollbar-thumb {
+      background: var(--line);
+      border-radius: 8px;
+    }
     h2 {
       font-size: 0.82rem;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--brass);
-      margin: 28px 0 12px;
+      margin: 28px 0 8px;
       font-weight: 600;
+    }
+    .admin-shell {
+      margin-top: 32px;
+      padding: 22px 18px 20px;
+      border: 1px solid var(--brass-dim);
+      border-radius: 16px;
+      background: #141821;
+    }
+    .admin-shell > h2 {
+      font-size: 1.7rem;
+      letter-spacing: 0.28em;
+      text-align: center;
+      margin: 0 0 8px;
+    }
+    .admin-shell > .lede {
+      text-align: center;
+      max-width: 40em;
+      margin: 0 auto 18px;
+    }
+    .admin-block {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px 16px 14px;
+      margin: 14px 0 0;
+    }
+    .admin-block h3 {
+      font-size: 0.82rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--brass);
+      margin: 0 0 8px;
+      font-weight: 600;
+    }
+    .admin-block .lede {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      font-weight: 400;
+    }
+    .admin-block .add-row { margin: 12px 0 0; }
+    .admin-block .add-row button {
+      background: var(--bg);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font: inherit;
     }
     .fields {
       display: grid;
@@ -328,25 +405,83 @@
       font-size: 0.92rem;
     }
     .pending.show { display: block; }
-    .phrase-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+    .phrase-fold { margin-top: 12px; }
+    .phrase-fold > summary {
+      cursor: pointer;
+      color: var(--brass);
+      font-size: 0.92rem;
+      list-style: none;
+      user-select: none;
+    }
+    .phrase-fold > summary::-webkit-details-marker { display: none; }
+    .phrase-fold > summary::before { content: "▸ "; }
+    .phrase-fold[open] > summary::before { content: "▾ "; }
+    .phrase-table {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .phrase-head,
     .phrase-row {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: minmax(0, 1fr) 92px 52px;
       gap: 8px;
       align-items: center;
     }
-    .phrase-row input[type="text"] { width: 100%; }
-    .pref-lab { font-size: 0.78rem; color: var(--muted); display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+    .phrase-head {
+      padding: 8px 10px;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: #101218;
+      border-bottom: 1px solid var(--line);
+    }
+    .phrase-head span:nth-child(2),
+    .phrase-head span:nth-child(3) { text-align: center; }
+    .phrase-list { display: flex; flex-direction: column; gap: 0; margin: 0; }
+    .phrase-row {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .phrase-row:last-child { border-bottom: 0; }
+    .phrase-row input[type="text"] { width: 100%; min-width: 0; }
+    .pref-lab {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+      margin: 0;
+    }
+    .pref-lab input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      margin: 0;
+      accent-color: var(--brass);
+      cursor: pointer;
+    }
     .phrase-del {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      justify-self: center;
       background: var(--panel);
       color: #f0c2ba;
       border: 1px solid var(--stop);
       border-radius: 8px;
-      padding: 6px 10px;
+      font-size: 1.15rem;
+      line-height: 1;
       cursor: pointer;
     }
-    .add-row { display: flex; gap: 8px; margin-bottom: 18px; }
-    .add-row input { flex: 1; }
+    .add-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .add-row input { width: 100%; min-width: 0; }
     .add-row button, #boost-row { font: inherit; }
     #boost-row { margin: 8px 0 18px; }
     #boost-row input[type="range"] { width: 100%; }
@@ -354,13 +489,20 @@
       .fields { grid-template-columns: 1fr; }
       label.wide { grid-column: auto; }
       h1 { font-size: 1.6rem; }
+      .admin-shell > h2 { font-size: 1.35rem; letter-spacing: 0.18em; }
+      .phrase-head,
+      .phrase-row { grid-template-columns: minmax(0, 1fr) 76px 44px; }
+      .add-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body{% if status.ollama == false %} class="ollama-down"{% endif %}>
   <main>
     <header>
-      <h1>Jarvis</h1>
+      <div>
+        <h1>CLAIRE</h1>
+        <p class="brand">Conversational Local Audio Intelligent Runtime Engine</p>
+      </div>
       <div class="header-tools">
         <span id="badge" class="badge">{{ "Running" if status.running else "Standby" }}</span>
         <span id="ollama-badge" class="badge{% if status.ollama %} on{% else %} hazard{% endif %}">
@@ -373,11 +515,8 @@
           <span></span><span></span><span></span>
         </button>
         <div id="menu" class="menu" hidden>
-          <label class="menu-item">
-            <input type="checkbox" id="admin-toggle" />
-            Admin settings
-          </label>
-          <button type="button" id="shutdown" class="menu-item">Shut down</button>
+          <button type="button" id="admin-toggle" class="menu-item" aria-pressed="false">Admin settings</button>
+          <button type="button" id="shutdown" class="menu-item danger">Shut down</button>
         </div>
       </div>
     </header>
@@ -391,10 +530,26 @@
     <p id="pending-note" class="pending{% if status.pending_restart %} show{% endif %}" role="status">
       Settings have been modified. Stop and Start the assistant to apply them.
     </p>
-    <p class="lede">Defaults are loaded below. Change anything you want, then start.</p>
+
+    <section class="ops">
+      <button id="power" class="power{% if status.running %} running{% endif %}" type="button">
+        {{ "Stop " ~ wake_label if status.running else "Start " ~ wake_label }}
+      </button>
+      <div class="row">
+        <button id="record" type="button" disabled>Record</button>
+        <button id="interrupt" type="button" disabled>Interrupt speech</button>
+      </div>
+      <section class="status" aria-live="polite">
+        <p id="message">{{ status.message }}</p>
+        <p>Heard: <span class="heard" id="heard">{{ status.heard or "—" }}</span></p>
+        <p>Reply</p>
+        <div class="reply-box reply" id="reply">{{ status.reply or "—" }}</div>
+      </section>
+    </section>
 
     <form id="form">
       <h2>Runtime</h2>
+      <p class="lede">Wake word and spoken commands. These apply on Start.</p>
       <div class="fields">
         {% for field in runtime_fields %}
         <label{% if field.key in wide_keys %} class="wide"{% endif %}>
@@ -414,98 +569,165 @@
         {% endfor %}
       </div>
 
-      <h2>Models</h2>
-      <p class="lede">You download models yourself. The lists below are whatever Ollama has pulled and whatever <code>.onnx</code> files sit in <code>models/piper/</code> — not a supported catalog. Swap them at your own risk (size, license, language, speed).</p>
-      <div class="fields">
-        <label class="wide">
+      <section id="admin-section" class="admin-shell" hidden>
+        {% macro admin_input(field) %}
+        <label{% if field.key in wide_keys or field.key in ("mic_device", "thinking_interval_secs", "name_breath_secs") %} class="wide"{% endif %}>
           <span>
-            {{ llm_field.label }}
-            <a class="ext" href="{{ ollama_library_url }}" target="_blank" rel="noopener">Ollama library</a>
-            {% if llm_field.env_value %}<span class="env">overridden by {{ llm_field.env }}</span>{% endif %}
+            {{ field.label }}
+            {% if field.env_value %}<span class="env">overridden by {{ field.env }}</span>{% endif %}
           </span>
-          <select
-            id="llm_model"
-            name="llm_model"
-            data-default="{{ llm_field.default }}"
-          >
-            {% for name in llm_models %}
-            <option value="{{ name }}"{% if name == llm_field.value %} selected{% endif %}>{{ name }}</option>
+          {% if field.key == "mic_device" %}
+          <select id="mic_device" name="mic_device" data-default="">
+            <option value=""{% if not field.value %} selected{% endif %}>Auto</option>
+            {% for dev in mic_devices %}
+            <option value="{{ dev.id }}"{% if field.value == dev.id %} selected{% endif %}>{{ dev.name }}</option>
             {% endfor %}
           </select>
-        </label>
-        <label class="wide">
-          <span>
-            {{ voice_field.label }}
-            <a class="ext" href="{{ hf_piper_url }}" target="_blank" rel="noopener">Hugging Face en_US voices</a>
-            {% if voice_field.env_value %}<span class="env">overridden by {{ voice_field.env }}</span>{% endif %}
-          </span>
-          <select
-            id="voice_model"
-            name="voice_model"
-            data-default="{{ voice_field.default }}"
-          >
-            {% for voice in piper_voices %}
-            <option value="{{ voice.path }}"{% if voice.path == voice_field.value %} selected{% endif %}>{{ voice.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-
-      <section id="admin-section" hidden>
-        <h2>Admin</h2>
-        <div class="fields">
-          {% for field in admin_fields %}
-          {% if field.key in ("phrase_select_mode", "preferred_boost_pct") %}
           {% else %}
-          <label{% if field.key in wide_keys or field.key == "mic_device" %} class="wide"{% endif %}>
-            <span>
-              {{ field.label }}
-              {% if field.env_value %}<span class="env">overridden by {{ field.env }}</span>{% endif %}
-            </span>
-            {% if field.key == "mic_device" %}
-            <select id="mic_device" name="mic_device" data-default="">
-              <option value=""{% if not field.value %} selected{% endif %}>Auto</option>
-              {% for dev in mic_devices %}
-              <option value="{{ dev.id }}"{% if field.value == dev.id %} selected{% endif %}>{{ dev.name }}</option>
-              {% endfor %}
-            </select>
-            {% else %}
-            <input
-              id="{{ field.key }}"
-              name="{{ field.key }}"
-              value="{{ field.value }}"
-              placeholder="{{ field.default }}"
-              data-default="{{ field.default }}"
-              autocomplete="off"
-              {% if field.key == "voice_speaker" %}inputmode="numeric"{% endif %}
-              {% if field.key == "thinking_interval_secs" %}inputmode="decimal" min="3" step="0.1"{% endif %}
-              {% if field.key == "name_breath_secs" %}inputmode="decimal" min="0.05" max="2" step="0.05"{% endif %}
-            />
-            {% endif %}
-          </label>
+          <input
+            id="{{ field.key }}"
+            name="{{ field.key }}"
+            value="{{ field.value }}"
+            placeholder="{{ field.default }}"
+            data-default="{{ field.default }}"
+            autocomplete="off"
+            {% if field.key == "voice_speaker" %}inputmode="numeric"{% endif %}
+            {% if field.key == "thinking_interval_secs" %}inputmode="decimal" min="3" step="0.1"{% endif %}
+            {% if field.key == "name_breath_secs" %}inputmode="decimal" min="0.05" max="2" step="0.05"{% endif %}
+          />
           {% endif %}
-          {% endfor %}
-        </div>
-        <h2>Pre-canned speech</h2>
-        <input type="hidden" id="phrase_select_mode" name="phrase_select_mode" value="flat" data-default="flat" />
-        <div id="boost-row">
-          <label class="wide">
-            <span>Preferred mix: <strong id="boost-label">0%</strong> (0% = original equal pick; 50% ≈ preferred 2×; 100% = preferred only)</span>
-            <input id="preferred_boost_pct" name="preferred_boost_pct" type="range" min="0" max="100" step="5" value="0" data-default="0" />
-          </label>
-        </div>
-        <p class="lede">Thinking lines (while waiting on the model)</p>
-        <div id="thinking-list" class="phrase-list"></div>
-        <div class="add-row">
-          <input id="thinking-new" type="text" placeholder="Add a thinking line" autocomplete="off" />
-          <button type="button" id="thinking-add">Add</button>
-        </div>
-        <p class="lede">Missing wake-word lines. Use <code>{name}</code> for the wake word.</p>
-        <div id="wake-list" class="phrase-list"></div>
-        <div class="add-row">
-          <input id="wake-new" type="text" placeholder="Add a missing-wake line" autocomplete="off" />
-          <button type="button" id="wake-add">Add</button>
-        </div>
+        </label>
+        {% endmacro %}
+        <h2>Admin</h2>
+        <p class="lede">Models, paths, capture, and spoken canned lines. Changes while CLAIRE is running are stored, then applied on the next Stop and Start.</p>
+
+        <section class="admin-block">
+          <h3>Models</h3>
+          <p class="lede">You download models yourself. The lists below are whatever Ollama has pulled and whatever <code>.onnx</code> files sit in <code>models/piper/</code> — not a supported catalog. Swap them at your own risk (size, license, language, speed).</p>
+          <div class="fields">
+            <label class="wide">
+              <span>
+                {{ llm_field.label }}
+                <a class="ext" href="{{ ollama_library_url }}" target="_blank" rel="noopener">Ollama library</a>
+                {% if llm_field.env_value %}<span class="env">overridden by {{ llm_field.env }}</span>{% endif %}
+              </span>
+              <select
+                id="llm_model"
+                name="llm_model"
+                data-default="{{ llm_field.default }}"
+              >
+                {% for name in llm_models %}
+                <option value="{{ name }}"{% if name == llm_field.value %} selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="wide">
+              <span>
+                {{ voice_field.label }}
+                <a class="ext" href="{{ hf_piper_url }}" target="_blank" rel="noopener">Hugging Face en_US voices</a>
+                {% if voice_field.env_value %}<span class="env">overridden by {{ voice_field.env }}</span>{% endif %}
+              </span>
+              <select
+                id="voice_model"
+                name="voice_model"
+                data-default="{{ voice_field.default }}"
+              >
+                {% for voice in piper_voices %}
+                <option value="{{ voice.path }}"{% if voice.path == voice_field.value %} selected{% endif %}>{{ voice.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="admin-block">
+          <h3>Paths and devices</h3>
+          <p class="lede">Binaries, model files, memory folder, and which microphone to use. Leave microphone on Auto unless Record is silent or picking the wrong input.</p>
+          <div class="fields">
+            {% for field in admin_fields %}
+            {% if field.key not in ("phrase_select_mode", "preferred_boost_pct", "wake_fuzz_threshold", "thinking_interval_secs", "name_breath_secs") %}
+            {{ admin_input(field) }}
+            {% endif %}
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="admin-block">
+          <h3>Wake-word matching</h3>
+          <p class="lede">How closely the transcript must match the wake word after lowercase, punctuation strip, and space collapse. Lower is more forgiving of Whisper mistakes. Default 85%.</p>
+          <div id="fuzz-row">
+            <label class="wide">
+              <span>Wake-word match: <strong id="fuzz-label">85%</strong></span>
+              <input id="wake_fuzz_threshold" name="wake_fuzz_threshold" type="range" min="50" max="100" step="1" value="85" data-default="85" />
+            </label>
+          </div>
+        </section>
+
+        <section class="admin-block">
+          <h3>Pre-canned speech</h3>
+          <p class="lede">Lines Piper speaks that do not come from the LLM. New lines are not preferred unless you check the box. At 0% mix every line has equal odds. Above 0%, preferred lines are chosen more often (50% ≈ twice as often; 100% preferred only).</p>
+          <input type="hidden" id="phrase_select_mode" name="phrase_select_mode" value="flat" data-default="flat" />
+          <div id="boost-row">
+            <label class="wide">
+              <span>Preferred mix: <strong id="boost-label">0%</strong></span>
+              <input id="preferred_boost_pct" name="preferred_boost_pct" type="range" min="0" max="100" step="5" value="0" data-default="0" />
+            </label>
+          </div>
+        </section>
+
+        <section class="admin-block">
+          <h3>Thinking entries</h3>
+          <p class="lede">Spoken while waiting on Ollama. Keep them short. Stored in <code>phrases/thinking.json</code>.</p>
+          <div class="fields">
+            {% for field in admin_fields %}
+            {% if field.key == "thinking_interval_secs" %}
+            {{ admin_input(field) }}
+            {% endif %}
+            {% endfor %}
+          </div>
+          <div class="add-row">
+            <input id="thinking-new" type="text" placeholder="Add a thinking line" autocomplete="off" />
+            <button type="button" id="thinking-add">Add</button>
+          </div>
+          <details class="phrase-fold" id="thinking-fold">
+            <summary>Showing Thinking Entries</summary>
+            <div class="phrase-table">
+              <div class="phrase-head">
+                <span>Message</span>
+                <span>Preferred</span>
+                <span>Remove</span>
+              </div>
+              <div id="thinking-list" class="phrase-list"></div>
+            </div>
+          </details>
+        </section>
+
+        <section class="admin-block">
+          <h3>Missing wake-word entries</h3>
+          <p class="lede">Spoken when the take does not include the wake word. Use <code>{name}</code> for that word (a short breath is inserted before it). <code>...</code> is a pause. Stored in <code>phrases/missing_wake.json</code>.</p>
+          <div class="fields">
+            {% for field in admin_fields %}
+            {% if field.key == "name_breath_secs" %}
+            {{ admin_input(field) }}
+            {% endif %}
+            {% endfor %}
+          </div>
+          <div class="add-row">
+            <input id="wake-new" type="text" placeholder="Add a missing-wake line" autocomplete="off" />
+            <button type="button" id="wake-add">Add</button>
+          </div>
+          <details class="phrase-fold" id="wake-fold">
+            <summary>Show Wake-word Entries</summary>
+            <div class="phrase-table">
+              <div class="phrase-head">
+                <span>Message</span>
+                <span>Preferred</span>
+                <span>Remove</span>
+              </div>
+              <div id="wake-list" class="phrase-list"></div>
+            </div>
+          </details>
+        </section>
       </section>
 
       <div id="form-actions" class="actions" hidden>
@@ -514,20 +736,6 @@
       </div>
       <p id="save-hint" class="hint"></p>
     </form>
-
-    <button id="power" class="power{% if status.running %} running{% endif %}" type="button">
-      {{ "Stop " ~ wake_label if status.running else "Start " ~ wake_label }}
-    </button>
-    <div class="row">
-      <button id="record" type="button" disabled>Record</button>
-      <button id="interrupt" type="button" disabled>Interrupt speech</button>
-    </div>
-
-    <section class="status" aria-live="polite">
-      <p id="message">{{ status.message }}</p>
-      <p>Heard: <span class="heard" id="heard">{{ status.heard or "—" }}</span></p>
-      <p>Reply: <span class="reply" id="reply">{{ status.reply or "—" }}</span></p>
-    </section>
     </div>
   </main>
   <div id="admin-leave" class="modal-back" hidden role="dialog" aria-labelledby="admin-leave-title">
@@ -562,13 +770,15 @@
     const $ = (id) => document.getElementById(id);
     let running = {{ "true" if status.running else "false" }};
     let busy = false;
+    let lastHeard = null;
+    let lastReply = null;
     let baseline = {};
     let baselinePhrases = "";
     let loadedPhrases = {{ phrases_json | safe }};
 
     function cap(word) {
-      const w = (word || "friday").trim();
-      return w ? w[0].toUpperCase() + w.slice(1) : "Friday";
+      const w = (word || "claire").trim();
+      return w ? w[0].toUpperCase() + w.slice(1) : "Claire";
     }
 
     function fieldValue(key) {
@@ -612,6 +822,9 @@
       const lab = $("boost-label");
       if (slider && mode) mode.value = Number(slider.value) > 0 ? "preferred" : "flat";
       if (slider && lab) lab.textContent = boostCaption(slider.value);
+      const fuzz = $("wake_fuzz_threshold");
+      const flab = $("fuzz-label");
+      if (fuzz && flab) flab.textContent = `${fuzz.value}%`;
     }
 
     function renderPhraseList(listId, entries) {
@@ -622,8 +835,8 @@
         row.className = "phrase-row";
         row.innerHTML = `
           <input type="text" class="phrase-text" autocomplete="off" />
-          <label class="pref-lab"><input type="checkbox" class="phrase-pref" /> Preferred</label>
-          <button type="button" class="phrase-del">Remove</button>`;
+          <label class="pref-lab"><input type="checkbox" class="phrase-pref" aria-label="Preferred" /></label>
+          <button type="button" class="phrase-del" aria-label="Remove">×</button>`;
         row.querySelector(".phrase-text").value = entry.text || "";
         row.querySelector(".phrase-pref").checked = !!entry.preferred;
         row.querySelector(".phrase-del").addEventListener("click", () => {
@@ -653,6 +866,8 @@
       if (!text) return;
       renderPhraseList(listId, collectPhrases()[listId === "thinking-list" ? "thinking" : "missing_wake"].concat([{ text, preferred: false }]));
       $(inputId).value = "";
+      const fold = $(listId).closest("details");
+      if (fold) fold.open = true;
       updateDirty();
     }
 
@@ -761,8 +976,17 @@
       $("record").textContent = s.recording ? "Stop recording" : "Record";
       $("record").classList.toggle("hot", !!s.recording);
       $("message").textContent = s.message || (running ? "Running" : "Standby");
-      $("heard").textContent = s.heard || "—";
-      $("reply").textContent = s.reply || "—";
+      const heard = s.heard || "—";
+      if (heard !== lastHeard) {
+        lastHeard = heard;
+        $("heard").textContent = heard;
+      }
+      const reply = s.reply || "—";
+      if (reply !== lastReply) {
+        lastReply = reply;
+        $("reply").textContent = reply;
+        $("reply").scrollTop = 0;
+      }
       setFormDisabled(running || !ollamaUp, !ollamaUp);
       if ($("pending-note")) $("pending-note").classList.toggle("show", !!s.pending_restart);
       updateDirty();
@@ -789,10 +1013,21 @@
       return data;
     }
 
+    function adminOpen() {
+      return $("admin-toggle").getAttribute("aria-pressed") === "true";
+    }
+
+    function closeMenu() {
+      $("menu").hidden = true;
+      $("menu-btn").setAttribute("aria-expanded", "false");
+    }
+
     function setAdmin(on) {
-      $("admin-toggle").checked = on;
+      const btn = $("admin-toggle");
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.textContent = on ? "Hide admin settings" : "Admin settings";
       $("admin-section").hidden = !on;
-      localStorage.setItem("jarvisAdmin", on ? "1" : "0");
+      localStorage.setItem("claireAdmin", on ? "1" : "0");
     }
 
     async function saveAll() {
@@ -829,17 +1064,22 @@
       $("menu-btn").setAttribute("aria-expanded", "false");
     });
     $("menu").addEventListener("click", (e) => e.stopPropagation());
-    $("admin-toggle").addEventListener("change", (e) => {
-      const on = e.target.checked;
+    $("admin-toggle").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const on = !adminOpen();
       if (!on && isDirty() && running) {
-        e.preventDefault();
-        $("admin-toggle").checked = true;
+        closeMenu();
         $("admin-leave").hidden = false;
         return;
       }
       setAdmin(on);
+      closeMenu();
+      if (on) {
+        const section = $("admin-section");
+        if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     });
-    setAdmin(localStorage.getItem("jarvisAdmin") === "1");
+    setAdmin(localStorage.getItem("claireAdmin") === "1");
     $("admin-leave-save").addEventListener("click", async () => {
       $("save-hint").classList.remove("error");
       try {
@@ -863,10 +1103,11 @@
     });
     $("admin-leave-cancel").addEventListener("click", () => {
       $("admin-leave").hidden = true;
-      $("admin-toggle").checked = true;
+      setAdmin(true);
     });
     if ($("phrase_select_mode")) $("phrase_select_mode").addEventListener("change", syncBoostUi);
     if ($("preferred_boost_pct")) $("preferred_boost_pct").addEventListener("input", syncBoostUi);
+    if ($("wake_fuzz_threshold")) $("wake_fuzz_threshold").addEventListener("input", syncBoostUi);
     $("thinking-add").addEventListener("click", () => addPhrase("thinking-list", "thinking-new"));
     $("wake-add").addEventListener("click", () => addPhrase("wake-list", "wake-new"));
 
@@ -878,7 +1119,7 @@
     $("mic-alert-admin").addEventListener("click", () => {
       dismissMicAlert();
       setAdmin(true);
-      $("menu").hidden = true;
+      closeMenu();
       const section = $("admin-section");
       if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -985,9 +1226,15 @@
     baseline = formValues();
     applyStatus({{ status_json | safe }});
     markClean();
+    if (window.EventSource) {
+      const events = new EventSource("/api/events");
+      events.onmessage = (ev) => {
+        try { applyStatus(JSON.parse(ev.data)); } catch (_) {}
+      };
+    }
     setInterval(async () => {
       try { applyStatus(await api("/api/status")); } catch (_) {}
-    }, 800);
+    }, 2000);
   </script>
 </body>
 </html>
