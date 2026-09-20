@@ -26,6 +26,17 @@ from sshkeyboard import listen_keyboard, stop_listening
 
 IS_MAC = sys.platform == "darwin"
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def app_version() -> str:
+    """Release version from pyproject.toml. Bump that file for a new release."""
+    path = ROOT / "pyproject.toml"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "0.0.0"
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else "0.0.0"
 # Parked: Tab / F12 / Esc via sshkeyboard. Flip True when the text CLI
 # matches the web UI. Until then, python src/web.py is the only control surface.
 CLI_INTERACTIVE = False

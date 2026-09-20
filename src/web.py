@@ -34,7 +34,7 @@ if "://" not in _OLLAMA_BASE:
     _OLLAMA_BASE = "http://" + _OLLAMA_BASE
 OLLAMA_TAGS = _OLLAMA_BASE + "/api/tags"
 
-app = FastAPI(title="CLAIRE")
+app = FastAPI(title=f"CLAIRE {comms.app_version()}")
 templates = Jinja2Templates(directory=str(UI_DIR))
 _lock = threading.Lock()
 _server = None
@@ -126,6 +126,7 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
         "record_key": comms.RECORD_KEY,
         "interrupt_key": comms.INTERRUPT_KEY,
         "quit_key": comms.QUIT_KEY,
+        "version": comms.app_version(),
     }
 
 
@@ -275,6 +276,7 @@ def _page_context(request: Request) -> dict:
         },
         "phrases": comms.phrases_payload(),
         "phrases_json": json.dumps(comms.phrases_payload()),
+        "app_version": comms.app_version(),
     }
 
 
@@ -504,7 +506,7 @@ def main():
     global _server
     import uvicorn
 
-    print(f"CLAIRE UI  http://{HOST}:{PORT}")
+    print(f"CLAIRE {comms.app_version()}  http://{HOST}:{PORT}")
     config = uvicorn.Config(
         app, host=HOST, port=PORT, log_level="warning", access_log=False
     )

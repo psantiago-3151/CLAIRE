@@ -15,6 +15,8 @@ A fully configurable voice layer for local LLMs (Ollama — Llama, Qwen, Mistral
 
 macOS and Linux. Web UI at [http://127.0.0.1:8742](http://127.0.0.1:8742). Windows is not supported yet.
 
+Current release: **0.2.0** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
+
 ## Architecture
 
 Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). The web UI is a control panel; `comms.py` is the voice loop.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline smoke test: imports, config, wake-word, phrases, HTTP UI. No mic, no Ollama generate."""
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +22,8 @@ def main() -> int:
             print("FAIL", msg)
             errors.append(msg)
 
+    ver = comms.app_version()
+    check(bool(re.fullmatch(r"\d+\.\d+\.\d+", ver)), f"app version {ver}")
     check("claire" in comms.AI_NAME or comms.AI_NAME, f"wake word loaded: {comms.AI_NAME}")
     check(comms.FILLER_ENTRIES, "thinking phrases loaded")
     check(comms.MISSING_WAKE_ENTRIES, "missing-wake phrases loaded")
@@ -64,12 +67,14 @@ def main() -> int:
     check(home.status_code == 200, f"GET / {home.status_code}")
     check(b"CLAIRE" in home.content, "HTML title/brand CLAIRE")
     check(b"Conversational Local Audio" in home.content, "HTML acronym")
+    check(ver.encode() in home.content, f"HTML shows v{ver}")
 
     st = client.get("/api/status")
     check(st.status_code == 200, f"GET /api/status {st.status_code}")
     body = st.json()
     check("ollama" in body and "mic" in body, f"status keys {sorted(body)}")
     check(body.get("running") is False, "not running")
+    check(body.get("version") == ver, f"status version {body.get('version')}")
 
     cfg = client.get("/api/config")
     check(cfg.status_code == 200, f"GET /api/config {cfg.status_code}")

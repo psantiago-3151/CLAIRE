@@ -60,6 +60,12 @@
       text-transform: uppercase;
       color: var(--muted);
     }
+    .ver {
+      margin: 2px 0 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
     .header-tools {
       display: flex;
       align-items: center;
@@ -532,6 +538,7 @@
       <div>
         <h1>CLAIRE</h1>
         <p class="brand">Conversational Local Audio Intelligent Runtime Engine</p>
+        <p class="ver">v{{ app_version }}</p>
       </div>
       <div class="header-tools">
         <span id="badge" class="badge">{{ "Running" if status.running else "Standby" }}</span>
