@@ -72,7 +72,7 @@ flowchart TB
 
 ## Credits
 
-- **Design and product:** Philip Santiago (the plumbing).
+- **Design and product:** Philip Santiago (Design Engineer/Grok Prompter).
 - **Implementation:** Grok (xAI) (the plumber).
 
 This project is a **hobby** and an **exercise of xAI products** plus the designer’s imagination. The spoken name defaults to **Claire**.
