@@ -6,21 +6,32 @@
   <title>CLAIRE</title>
   <style>
     :root {
-      --bg: #101218;
-      --panel: #181c26;
-      --ink: #ece7dc;
-      --muted: #9a9386;
-      --line: #2a3140;
-      --brass: #d4a574;
-      --brass-dim: #8a6a45;
-      --go: #d4a574;
-      --stop: #c45c4a;
-      --ok: #7dba8a;
+      --ocean: #0D4D64;
+      --coral: #FF6E5C;
+      --light: #66D9F6;
+      --pale: #FFA88A;
+      --gray: #7B7B7B;
+      --bg: #0D4D64;
+      --panel: rgba(8, 42, 56, 0.72);
+      --ink: #FFFFFF;
+      --muted: #B7E7F4;
+      --line: rgba(102, 217, 246, 0.38);
+      --brass: #66D9F6;
+      --brass-dim: #3AA8C8;
+      --go: #FF6E5C;
+      --stop: #FF6E5C;
+      --ok: #66D9F6;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--ink);
+      background: linear-gradient(165deg, #0D4D64 0%, #0D4D64 42%, #66D9F6 100%);
+      background-attachment: fixed;
+    }
     body {
-      font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      font: 16px/1.45 Arial, Helvetica, sans-serif;
       padding: 24px 16px 48px;
     }
     main {
@@ -35,11 +46,12 @@
       margin-bottom: 12px;
     }
     h1 {
-      font-family: Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
-      font-weight: 500;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 700;
       letter-spacing: 0.04em;
       margin: 0;
       font-size: 2rem;
+      color: #FFFFFF;
     }
     .brand {
       margin: 4px 0 0;
@@ -59,27 +71,36 @@
       margin: 0 0 24px;
     }
     .badge {
-      font-size: 0.72rem;
-      letter-spacing: 0.16em;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--muted);
+      background: transparent;
       border: 1px solid var(--line);
-      padding: 4px 10px;
+      padding: 2px 7px;
       border-radius: 999px;
+      font-weight: 600;
     }
-    .badge.on { color: var(--ok); border-color: #2f5a3a; }
-    .badge.warn { color: var(--brass); border-color: var(--brass-dim); }
+    .badge.on {
+      color: #7dba8a;
+      border-color: #7dba8a;
+      background: transparent;
+    }
+    .badge.warn {
+      color: #e8b44a;
+      border-color: #e8b44a;
+      background: transparent;
+    }
     .badge.hazard {
-      color: #1a140c;
-      background: #e8b44a;
-      border-color: #c45c4a;
+      color: #e85c4a;
+      border-color: #e85c4a;
+      background: transparent;
       font-weight: 700;
-      letter-spacing: 0.1em;
       animation: hazard-pulse 1.2s ease-in-out infinite;
     }
     @keyframes hazard-pulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(232, 180, 74, 0.55); }
-      50% { box-shadow: 0 0 0 6px rgba(232, 180, 74, 0); }
+      0%, 100% { box-shadow: 0 0 0 0 rgba(232, 92, 74, 0.45); }
+      50% { box-shadow: 0 0 0 4px rgba(232, 92, 74, 0); }
     }
     .notice {
       display: none;
@@ -93,9 +114,9 @@
     }
     .notice.show { display: block; }
     .notice.hazard {
-      border: 2px solid #e8b44a;
-      background: #2a1c0c;
-      color: #f5d78a;
+      border: 2px solid var(--coral);
+      background: rgba(13, 77, 100, 0.92);
+      color: #FFFFFF;
       font-size: 1.05rem;
       font-weight: 600;
       text-align: center;
@@ -104,7 +125,7 @@
       font-size: 1.15rem;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: #e8b44a;
+      color: var(--pale);
       margin-bottom: 8px;
     }
     .notice code {
@@ -138,10 +159,11 @@
     .hamburger span {
       display: block;
       height: 2px;
-      background: var(--ink);
+      background: var(--light);
       border-radius: 1px;
     }
-    .hamburger[aria-expanded="true"] { border-color: var(--brass-dim); }
+    .hamburger[aria-expanded="true"] { border-color: var(--coral); }
+    .hamburger[aria-expanded="true"] span { background: var(--coral); }
     .menu {
       position: absolute;
       top: calc(100% + 8px);
@@ -174,8 +196,8 @@
       color: var(--brass);
     }
     .menu-item.danger {
-      border-color: var(--stop);
-      color: #f0c2ba;
+      border-color: var(--coral);
+      color: var(--coral);
     }
     .ops { margin: 0 0 8px; }
     .power {
@@ -187,13 +209,13 @@
       font-weight: 600;
       letter-spacing: 0.03em;
       cursor: pointer;
-      background: var(--go);
-      color: #1a140c;
+      background: var(--coral);
+      color: #FFFFFF;
       margin-top: 0;
     }
     .power.running {
-      background: var(--stop);
-      color: #fff8f6;
+      background: var(--pale);
+      color: var(--ocean);
     }
     .power:disabled { opacity: 0.55; cursor: wait; }
     .row {
@@ -207,14 +229,15 @@
       min-width: 140px;
       padding: 12px 14px;
       border-radius: 10px;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: var(--ink);
+      border: 1px solid transparent;
+      background: var(--light);
+      color: var(--ocean);
       cursor: pointer;
       font-size: 0.95rem;
+      font-weight: 600;
     }
     .row button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .row button.hot { border-color: var(--stop); color: #f0c2ba; }
+    .row button.hot { background: var(--coral); border-color: var(--coral); color: #FFFFFF; }
     .status {
       margin: 14px 0 0;
       padding: 14px 16px;
@@ -253,9 +276,9 @@
     .admin-shell {
       margin-top: 32px;
       padding: 22px 18px 20px;
-      border: 1px solid var(--brass-dim);
+      border: 1px solid var(--light);
       border-radius: 16px;
-      background: #141821;
+      background: rgba(8, 42, 56, 0.55);
     }
     .admin-shell > h2 {
       font-size: 1.7rem;
@@ -290,13 +313,14 @@
     }
     .admin-block .add-row { margin: 12px 0 0; }
     .admin-block .add-row button {
-      background: var(--bg);
-      color: var(--ink);
-      border: 1px solid var(--line);
+      background: var(--light);
+      color: var(--ocean);
+      border: 1px solid var(--light);
       border-radius: 8px;
       padding: 10px 14px;
       cursor: pointer;
       font: inherit;
+      font-weight: 600;
     }
     .fields {
       display: grid;
@@ -312,14 +336,15 @@
     }
     label.wide { grid-column: 1 / -1; }
     input, select {
-      background: #12151c;
+      background: rgba(8, 42, 56, 0.85);
       border: 1px solid var(--line);
       color: var(--ink);
       border-radius: 8px;
       padding: 10px 12px;
       font: inherit;
     }
-    input:focus, select:focus { outline: 2px solid var(--brass-dim); border-color: var(--brass); }
+    input:focus, select:focus { outline: 2px solid var(--light); border-color: var(--light); }
+    input[type="range"] { accent-color: var(--coral); }
     input:disabled, select:disabled { opacity: 0.55; }
     a.ext {
       color: var(--brass);
@@ -336,13 +361,18 @@
     }
     .actions[hidden] { display: none; }
     .actions button {
-      background: var(--panel);
-      color: var(--brass);
-      border: 1px solid var(--brass-dim);
+      background: var(--coral);
+      color: #FFFFFF;
+      border: 1px solid var(--coral);
       border-radius: 10px;
       padding: 10px 16px;
       cursor: pointer;
       font-weight: 600;
+    }
+    .actions button#reset {
+      background: var(--light);
+      color: var(--ocean);
+      border-color: var(--light);
     }
     .hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; min-height: 1.2em; }
     .error { color: var(--stop); }
@@ -360,18 +390,18 @@
     .modal {
       max-width: 420px;
       width: 100%;
-      background: #2a1c0c;
-      border: 2px solid #e8b44a;
+      background: var(--ocean);
+      border: 2px solid var(--coral);
       border-radius: 14px;
       padding: 22px 20px 18px;
-      color: #f5d78a;
+      color: #FFFFFF;
     }
     .modal h3 {
       margin: 0 0 10px;
       font-size: 1.05rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #e8b44a;
+      color: var(--pale);
     }
     .modal p { margin: 0 0 16px; line-height: 1.45; color: var(--ink); }
     .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -385,9 +415,9 @@
       font-weight: 600;
     }
     .modal-actions .primary {
-      background: #e8b44a;
+      background: var(--coral);
       border: 0;
-      color: #1a140c;
+      color: #FFFFFF;
     }
     .modal-actions .ghost {
       background: transparent;
@@ -435,7 +465,7 @@
       letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--muted);
-      background: #101218;
+      background: rgba(13, 77, 100, 0.9);
       border-bottom: 1px solid var(--line);
     }
     .phrase-head span:nth-child(2),
@@ -459,7 +489,7 @@
       height: 16px;
       padding: 0;
       margin: 0;
-      accent-color: var(--brass);
+      accent-color: var(--coral);
       cursor: pointer;
     }
     .phrase-del {
@@ -467,9 +497,9 @@
       height: 32px;
       padding: 0;
       justify-self: center;
-      background: var(--panel);
-      color: #f0c2ba;
-      border: 1px solid var(--stop);
+      background: transparent;
+      color: var(--coral);
+      border: 1px solid var(--coral);
       border-radius: 8px;
       font-size: 1.15rem;
       line-height: 1;
@@ -654,7 +684,7 @@
 
         <section class="admin-block">
           <h3>Wake-word matching</h3>
-          <p class="lede">How closely the transcript must match the wake word after lowercase, punctuation strip, and space collapse. Lower is more forgiving of Whisper mistakes. Default 85%.</p>
+          <p class="lede">How closely the transcript must match the wake word after lowercase, punctuation strip, and space collapse. Lower is more forgiving of Whisper mistakes. Default 85%. This slider does not apply to spoken quit phrases.</p>
           <div id="fuzz-row">
             <label class="wide">
               <span>Wake-word match: <strong id="fuzz-label">85%</strong></span>
@@ -770,6 +800,7 @@
     const $ = (id) => document.getElementById(id);
     let running = {{ "true" if status.running else "false" }};
     let busy = false;
+    let shuttingDown = false;
     let lastHeard = null;
     let lastReply = null;
     let baseline = {};
@@ -948,6 +979,7 @@
     }
 
     function applyStatus(s) {
+      if (shuttingDown) return;
       running = !!s.running;
       busy = !!s.busy;
       const ollamaUp = s.ollama !== false;
@@ -1125,22 +1157,30 @@
     });
 
     $("shutdown").addEventListener("click", async (e) => {
+      e.preventDefault();
       e.stopPropagation();
+      shuttingDown = true;
       $("shutdown").disabled = true;
       $("message").classList.remove("error");
+      $("message").textContent = "Shutting down";
+      $("badge").textContent = "Off";
+      $("badge").classList.remove("on");
+      $("power").disabled = true;
+      $("record").disabled = true;
+      $("interrupt").disabled = true;
+      closeMenu();
+      if (events) {
+        try { events.close(); } catch (_) {}
+        events = null;
+      }
       try {
-        await api("/api/shutdown", { method: "POST" });
-        $("message").textContent = "Shutting down";
-        $("badge").textContent = "Off";
-        $("badge").classList.remove("on");
-        $("power").disabled = true;
-        $("record").disabled = true;
-        $("interrupt").disabled = true;
-        $("menu").hidden = true;
-      } catch (err) {
-        $("shutdown").disabled = false;
-        $("message").textContent = err.message;
-        $("message").classList.add("error");
+        await fetch("/api/shutdown", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          keepalive: true,
+        });
+      } catch (_) {
+        /* process may already be gone */
       }
     });
 
@@ -1226,9 +1266,11 @@
     baseline = formValues();
     applyStatus({{ status_json | safe }});
     markClean();
+    let events = null;
     if (window.EventSource) {
-      const events = new EventSource("/api/events");
+      events = new EventSource("/api/events");
       events.onmessage = (ev) => {
+        if (shuttingDown) return;
         try { applyStatus(JSON.parse(ev.data)); } catch (_) {}
       };
     }

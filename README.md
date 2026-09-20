@@ -218,7 +218,8 @@ python scripts/smoke_test.py
 
 - Say the **wake word** plus your request  
 - **scratch that, scratch that** starts a new memory session  
-- Spoken **exit** / **goodbye** / **shut down** quits  
+- Spoken **exit** / **goodbye** / **shut down** is the same as **Stop** (voice loop off; UI stays up)  
+- Hamburger **Shut down** exits the UI process  
 
 ## Config
 

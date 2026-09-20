@@ -431,7 +431,7 @@ QUIT_KEY = _setting("CLAIRE_QUIT_KEY", "quit_key", "esc").lower()
 QUIT_PHRASES = [
     p.strip().lower()
     for p in _setting(
-        "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
+        "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down,shutdown"
     ).split(",")
     if p.strip()
 ]
@@ -461,7 +461,7 @@ CONFIG_FIELDS = [
     {"key": "record_key", "env": "CLAIRE_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
     {"key": "interrupt_key", "env": "CLAIRE_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
     {"key": "quit_key", "env": "CLAIRE_QUIT_KEY", "label": "Quit key", "group": "runtime", "ui": "hidden", "default": "esc"},
-    {"key": "quit_phrases", "env": "CLAIRE_QUIT_PHRASES", "label": "Spoken quit phrases", "group": "runtime", "ui": "visible", "default": "exit,goodbye,shut down"},
+    {"key": "quit_phrases", "env": "CLAIRE_QUIT_PHRASES", "label": "Spoken quit phrases", "group": "runtime", "ui": "visible", "default": "exit,goodbye,shut down,shutdown"},
     {"key": "new_session_phrase", "env": "CLAIRE_NEW_SESSION_PHRASE", "label": "New session phrase", "group": "runtime", "ui": "visible", "default": "scratch that"},
 ]
 _FIELD_KEYS = {f["key"] for f in CONFIG_FIELDS}
@@ -555,7 +555,7 @@ def reload_settings():
     QUIT_PHRASES = [
         p.strip().lower()
         for p in _setting(
-            "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down"
+            "CLAIRE_QUIT_PHRASES", "quit_phrases", "exit,goodbye,shut down,shutdown"
         ).split(",")
         if p.strip()
     ]
@@ -1517,6 +1517,11 @@ def on_key_press(key):
         log(f"handler error: {type(exc).__name__}: {exc}")
 
 
+# Quit matching is independent of the wake-word slider. A low wake
+# threshold (e.g. 50%) must not treat "count one" as "shut down".
+QUIT_FUZZ_THRESHOLD = 90.0
+
+
 def _quit_requested(user_text: str) -> bool:
     norm = _normalize_wake_text(user_text)
     if not norm:
@@ -1528,19 +1533,20 @@ def _quit_requested(user_text: str) -> bool:
             continue
         if re.search(rf"\b{re.escape(target)}\b", norm):
             return True
-        if target.replace(" ", "") and target.replace(" ", "") in compact:
+        compact_target = target.replace(" ", "")
+        if compact_target and compact_target in compact:
             return True
         parts = target.split()
         tokens = norm.split()
         width = max(1, len(parts))
         if width == 1:
             for tok in tokens:
-                if fuzz.ratio(target, tok) >= WAKE_FUZZ_THRESHOLD:
+                if fuzz.ratio(target, tok) >= QUIT_FUZZ_THRESHOLD:
                     return True
         else:
             for i in range(0, max(0, len(tokens) - width + 1)):
                 window = " ".join(tokens[i : i + width])
-                if fuzz.ratio(target, window) >= WAKE_FUZZ_THRESHOLD:
+                if fuzz.ratio(target, window) >= QUIT_FUZZ_THRESHOLD:
                     return True
     return False
 
@@ -1563,7 +1569,7 @@ def process_utterance(user_text: str, on_result=None) -> dict:
         return emit({"ok": False, "action": "empty", "heard": "", "message": "No audio captured"})
 
     if _quit_requested(user_text):
-        log("Quit phrase heard — shutting down")
+        log("Quit phrase heard — stopping")
         result = emit({"ok": True, "action": "quit", "heard": user_text, "reply": "Goodbye!"})
         comms.speak("Goodbye!")
         stop_requested = True

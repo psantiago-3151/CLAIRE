@@ -6,9 +6,9 @@ Then open http://127.0.0.1:8742
 """
 import asyncio
 import json
+import logging
 import os
 import queue
-import signal
 import threading
 import time
 import urllib.error
@@ -37,6 +37,8 @@ OLLAMA_TAGS = _OLLAMA_BASE + "/api/tags"
 app = FastAPI(title="CLAIRE")
 templates = Jinja2Templates(directory=str(UI_DIR))
 _lock = threading.Lock()
+_server = None
+_shutting_down = False
 _state = {
     "running": False,
     "busy": False,
@@ -127,10 +129,10 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
     }
 
 
-def _stop_inner():
+def _stop_inner(quiet: bool = False):
     if comms.comms.recording:
         comms.comms.stop_recording()
-    comms.comms.interrupt()
+    comms.comms.interrupt(silent=quiet)
     _state["running"] = False
     _state["busy"] = False
     _state["message"] = "Standby"
@@ -329,12 +331,16 @@ async def ui_events():
             _ui_waiters.append(waiter)
         try:
             yield _sse_pack(_snapshot())
-            while True:
+            while not _shutting_down:
                 try:
-                    await asyncio.to_thread(waiter.get, True, 20)
+                    await asyncio.to_thread(waiter.get, True, 1)
                 except queue.Empty:
+                    if _shutting_down:
+                        break
                     yield b": keepalive\n\n"
                     continue
+                if _shutting_down:
+                    break
                 while True:
                     try:
                         waiter.get_nowait()
@@ -437,23 +443,73 @@ def ack_alert():
     return _snapshot()
 
 
+def _quiet_shutdown_logs():
+    class _DropCancelled(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            if _shutting_down:
+                return False
+            text = record.getMessage()
+            if "CancelledError" in text:
+                return False
+            exc = record.exc_info
+            if exc and exc[0] is not None and issubclass(exc[0], asyncio.CancelledError):
+                return False
+            return True
+
+    drop = _DropCancelled()
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "uvicorn.asgi", "asyncio"):
+        log = logging.getLogger(name)
+        log.addFilter(drop)
+        if _shutting_down:
+            log.setLevel(logging.CRITICAL)
+
+
+def _hard_exit_soon(delay: float = 0.6):
+    def _go():
+        print("CLAIRE stopped.", flush=True)
+        os._exit(0)
+    timer = threading.Timer(delay, _go)
+    timer.daemon = True
+    timer.start()
+
+
+def _request_exit():
+    """Exit this process. Menu Shut down only — spoken quit phrases use Stop."""
+    global _shutting_down
+    _shutting_down = True
+    _quiet_shutdown_logs()
+    _push_ui()
+    _hard_exit_soon(0.6)
+    server = _server
+    if server is not None:
+        server.should_exit = True
+    try:
+        with _lock:
+            _stop_inner(quiet=True)
+    except Exception:
+        pass
+
+
 def _exit_process():
-    with _lock:
-        _stop_inner()
-    os.kill(os.getpid(), signal.SIGTERM)
+    _request_exit()
 
 
 @app.post("/api/shutdown")
 def shutdown_app():
-    threading.Timer(0.3, _exit_process).start()
+    _request_exit()
     return {"ok": True, "message": "Shutting down"}
 
 
 def main():
+    global _server
     import uvicorn
 
     print(f"CLAIRE UI  http://{HOST}:{PORT}")
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning", access_log=False)
+    config = uvicorn.Config(
+        app, host=HOST, port=PORT, log_level="warning", access_log=False
+    )
+    _server = uvicorn.Server(config)
+    _server.run()
 
 
 if __name__ == "__main__":

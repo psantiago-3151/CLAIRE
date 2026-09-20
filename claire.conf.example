@@ -38,5 +38,5 @@ interrupt_key=f12
 quit_key=esc
 
 # Spoken runtime commands (comma-separated; new session requires the phrase twice)
-quit_phrases=exit,goodbye,shut down
+quit_phrases=exit,goodbye,shut down,shutdown
 new_session_phrase=scratch that

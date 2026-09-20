@@ -40,6 +40,12 @@ def main() -> int:
     check(comms._quit_requested("shutdown"), "quit shutdown")
     check(comms._quit_requested("Claire, shut down."), "quit shut down")
     check(not comms._quit_requested("check one two three"), "no false quit")
+    comms.WAKE_FUZZ_THRESHOLD = 50.0
+    count_q = "Can you count? One to ten backwards in the opposite direction? Thank you."
+    check(not comms._quit_requested(count_q), "count question is not quit at 50% wake fuzz")
+    check(comms._quit_requested("Claire goodbye"), "quit still matches goodbye")
+    check(comms._quit_requested("good bye"), "quit still matches good bye")
+    check(comms._quit_requested("shutdown"), "quit still matches shutdown")
 
     spoken = comms.tts_speak_text("### Hello **world**")
     check("hash" not in spoken.lower() and "*" not in spoken, f"tts markup: {spoken!r}")
