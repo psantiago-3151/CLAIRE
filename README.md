@@ -271,6 +271,8 @@ Copy `claire.conf.example` → `claire.conf` (gitignored). The UI writes that fi
 | Whisper model | `CLAIRE_WHISPER_MODEL` | `models/whisper/ggml-base.en.bin` |
 | Piper binary | `CLAIRE_PIPER_BIN` | `venv/bin/piper` |
 | Memory directory | `CLAIRE_MEMORY_DIR` | `memory/` |
+| Use conversation memory | `CLAIRE_MEMORY_ENABLED` | `1` (on) |
+| Memory to load (%) | `CLAIRE_MEMORY_LOAD_PCT` | `100` (most recent; slider if >100 turns) |
 | Microphone (Linux) | `CLAIRE_MIC_DEVICE` | auto |
 | Wake word | `CLAIRE_WAKE_WORD` | `claire` |
 | Preferred mix (%) | `CLAIRE_PREFERRED_BOOST` | `0` (equal pick) |
@@ -280,7 +282,27 @@ Drop extra Piper voices in `models/piper/` (**both** `name.onnx` and `name.onnx.
 
 Speaker id only matters for multi-speaker voices.
 
+Conversation memory is **on by default**. Turns are stored only when Ollama replies. **Stop** writes nothing extra if that Start/Stop cycle had no replies. **Start** loads the store into RAM (Record stays off until that request finishes — so Start then Record one second later still has history). The model sees history on the **first spoken turn**, not in a separate preload generate. Under 100 turns, the recency window is all of them. Over 100, Admin shows a **most-recent %** slider (default 100%). Each turn is tagged `good` / `similar` / `duplicate`; only **good** turns are fed (first copy of a duplicate, one exemplar of similar waffle). Toggle **Use conversation memory** next to the memory directory to disable.
+
 If Record is silent, set **Microphone device** in Admin. After several consecutive empty recordings, the UI may warn — or you simply were not speaking.
+
+## Runtime notes
+
+CLAIRE is a **voice engine** around **your** Ollama model. These are how that loop behaves today.
+
+**Wake word vs memory.** Changing the wake word **resets the experience**. The wake word is also the assistant’s name in the prompt. Old turns stay in `memory/current.json`, but user lines still say the previous name, so the model often answers like a new character. Treat a new wake word as a new conversation.
+
+**Disk vs the running process.** `current.json` is **not** re-read on every Record. History is loaded on **Start** into RAM, then appended after each Ollama reply. Editing JSON while `python src/web.py` is running does not change what the model hears until you **Shut down** and start it again.
+
+**What Start loads.** Start concatenates every `memory/*.json` in that folder (not subfolders). A `*_session.json` left next to `current.json` is fed again. Move old sessions into `memory/archive/` if you want them out of the prompt.
+
+**When a turn is stored.** Only an **addressed** utterance that gets an Ollama reply is saved. Missing-wake canned lines, empty recordings, Interrupt, Start, and Stop do not write turns. Stop with no replies this cycle stores nothing extra.
+
+**Smart tags.** Turns may be tagged `good` / `similar` / `duplicate`. The **Start** window feeds **good** (and drops extra similars/duplicates). Tags are not a live filter mid-cycle; waffle can still land in RAM until the next Start.
+
+**Thinking / fillers.** Fillers run until the engine sees the **first** reply token. A model that **loops** (same stanza for a long time) still holds the take until generation hits the cap. Piper then speaks whatever came back. Vision tags such as `qwen2.5vl` are a poor spoken-chat fit and hedge or loop more than a text instruct model.
+
+**Piper.** Each voice needs **both** `name.onnx` and `name.onnx.json` from the same Hugging Face folder. `phoneme_type` **espeak** (or missing) works out of the box. `japanese` / `thai` / `pinyin` need extra packages.
 
 ## Pre-canned speech
 
