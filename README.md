@@ -23,12 +23,9 @@ Current release: **0.2.3** (see `version` in `pyproject.toml`). The UI header an
 
 ## Demo
 
-A **live web-UI session** is available for viewing: Start, talk, change Piper voice in Admin, then continue the same request in another language.
+A **live web-UI session** is available **upon request** (Start, talk, change Piper voice in Admin, continue the same request in another language). Open a [GitHub issue](https://github.com/psantiago-3151/CLAIRE/issues) and ask.
 
-- **Watch** the recording on the [GitHub Release](https://github.com/psantiago-3151/CLAIRE/releases) for this version (optional: YouTube).
-- **Run it yourself** — that is the live demo: `python src/web.py` → [http://127.0.0.1:8742](http://127.0.0.1:8742) (see **Run**).
-
-The full uncut lab take is not published.
+To run a live demo on your machine: `python src/web.py` → [http://127.0.0.1:8742](http://127.0.0.1:8742) (see **Run**).
 
 ## Architecture
 
