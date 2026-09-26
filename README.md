@@ -19,7 +19,16 @@ macOS and Linux. You run CLAIRE in the **web UI** at [http://127.0.0.1:8742](htt
 
 Current release: **0.2.3** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
 
-**0.2.3** — memory you can switch off, recency % when the store grows past 100 turns, `good` / `similar` / `duplicate` tags so Start does not feed photocopies, streamed Ollama so thinking fillers stop on the first token, Interrupt stays clickable while Piper talks. Linux web UI path tested. Changing the wake word still **resets the experience** (assistant name in the prompt); old JSON is not deleted. See **Runtime notes**. The keyboard CLI remains parked.
+**0.2.3** — memory you can switch off, recency % when the store grows past 100 turns, `good` / `similar` / `duplicate` tags so Start does not feed photocopies, streamed Ollama so thinking fillers stop on the first token, Interrupt stays clickable while Piper talks. Linux web UI path tested. Changing the wake word still **resets the experience** (assistant name in the prompt); old JSON is not deleted. See **Runtime notes**.
+
+## Demo
+
+A **live web-UI session** is available for viewing: Start, talk, change Piper voice in Admin, then continue the same request in another language.
+
+- **Watch** the recording on the [GitHub Release](https://github.com/psantiago-3151/CLAIRE/releases) for this version (optional: YouTube).
+- **Run it yourself** — that is the live demo: `python src/web.py` → [http://127.0.0.1:8742](http://127.0.0.1:8742) (see **Run**).
+
+The full uncut lab take is not published.
 
 ## Architecture
 
@@ -218,7 +227,7 @@ Add your user to the `audio` group if capture is silent, then log out and back i
 
 ## Run
 
-The usual way to run CLAIRE is the **web UI**.
+The usual way to run CLAIRE is the **web UI**. That is also how you give yourself a live demo.
 
 Terminal 1:
 
