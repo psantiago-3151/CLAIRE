@@ -147,7 +147,12 @@ Other Whisper formats (OpenAI `.pt`, Hugging Face Transformers, etc.) **will not
 
 ### Piper voices (TTS) used here
 
-Piper **ONNX** from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) only. Each voice needs **both** `name.onnx` and `name.onnx.json` in `models/piper/`. The UI lists whatever `.onnx` files are in that folder.
+Piper **ONNX** from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) only. Hugging Face lists **two required downloads** per voice, from the **same folder**:
+
+- `name.onnx` — the voice weights
+- `name.onnx.json` — Piper config (sample rate, phoneme map, speakers). Speak fails without it. **Download this file too.** Do not create it by hand.
+
+Put both in `models/piper/`. The UI lists `.onnx` files in that folder; synthesis still needs the sibling `.json`.
 
 | Voice (file stem) | Locale | Role here | Notes |
 |---|---|---|---|
@@ -260,9 +265,9 @@ Copy `claire.conf.example` → `claire.conf` (gitignored). The UI writes that fi
 | Preferred mix (%) | `CLAIRE_PREFERRED_BOOST` | `0` (equal pick) |
 | Wake-word match (%) | `CLAIRE_WAKE_FUZZ` | `85` (50–100, fuzzy) |
 
-Drop extra Piper `.onnx` files in `models/piper/` and extra Whisper `ggml-*.bin` in `models/whisper/`, then refresh. Pull more LLMs with `ollama pull`. Catalogs: [Piper](https://huggingface.co/rhasspy/piper-voices), [Ollama](https://ollama.com/library), [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp). Listing a file does not mean it is tested.
+Drop extra Piper voices in `models/piper/` (**both** `name.onnx` and `name.onnx.json` from the same Hugging Face directory) and extra Whisper `ggml-*.bin` in `models/whisper/`, then refresh. Pull more LLMs with `ollama pull`. Catalogs: [Piper](https://huggingface.co/rhasspy/piper-voices), [Ollama](https://ollama.com/library), [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp). Listing a file does not mean it is tested.
 
-Piper needs **both** `name.onnx` and `name.onnx.json`. Speaker id only matters for multi-speaker voices.
+Speaker id only matters for multi-speaker voices.
 
 If Record is silent, set **Microphone device** in Admin. After several consecutive empty recordings, the UI may warn — or you simply were not speaking.
 
