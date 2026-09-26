@@ -154,6 +154,17 @@ Piper **ONNX** from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-
 
 Put both in `models/piper/`. The UI lists `.onnx` files in that folder; synthesis still needs the sibling `.json`.
 
+Open the JSON and check **`phoneme_type`**. CLAIRE shells out to `piper-tts` with no extra phonemizer packages, so only **espeak** works out of the box:
+
+| `phoneme_type` in the JSON | Out of the box? |
+|---|---|
+| `espeak` (or the key is missing) | **Yes** — English, Italian, Spanish, French, German, and most [piper-voices](https://huggingface.co/rhasspy/piper-voices/tree/main) folders |
+| `japanese` | No — needs OpenJTalk / `pyopenjtalk` (example: `ja_JP-hi_fi_captain-medium`) |
+| `thai` | No — needs `tltk` (example: `th_TH-tsync2-medium`) |
+| `pinyin` | No — needs g2pW (examples: `zh_CN-chaowen-medium`, `zh_CN-xiao_ya-medium`) |
+
+Older Chinese `zh_CN-huayan-*` is `espeak` and can load; `he_IL-*` uses a Hebrew path bundled in Piper 1.8 and is untested here. If `phoneme_type` is anything other than `espeak`, expect a Piper traceback unless you install that extra stack yourself.
+
 | Voice (file stem) | Locale | Role here | Notes |
 |---|---|---|---|
 | `en_US-libritts_r-medium` | US English | Original / example | Multi-speaker; `voice_speaker` picks among hundreds of ids (default `0`). Fetched by `scripts/download-models.sh`. |
@@ -161,7 +172,7 @@ Put both in `models/piper/`. The UI lists `.onnx` files in that folder; synthesi
 | `en_GB-northern_english_male-medium` | UK English | Added from HF sample | Single-speaker. |
 | `en_US-amy-medium` | US English | Added from HF sample | Single-speaker. |
 
-These files are **gitignored** (often 50–80 MB each). Drop in replacements from the Piper repo; random Hugging Face TTS packages will not work. Language of the voice should match what you speak.
+These files are **gitignored** (often 50–80 MB each). Drop in replacements from the Piper repo; random Hugging Face TTS packages will not work. Language of the voice should match what you speak. Default STT (`ggml-base.en.bin`) is English-only.
 
 ## Security
 
