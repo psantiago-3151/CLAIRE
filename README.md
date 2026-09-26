@@ -15,6 +15,8 @@ A fully configurable voice layer for local LLMs (Ollama — Llama, Qwen, Mistral
 
 macOS and Linux. Web UI at [http://127.0.0.1:8742](http://127.0.0.1:8742). Windows is not supported yet.
 
+**Linux is complete and tested** on Fedora / Nobara: web UI voice loop (Whisper in, Piper out, local Ollama), wake word, interrupt, Stop vs Shut down. macOS was the original path. The clone is still plumbing — you install Ollama, `whisper-cli`, and models. The keyboard CLI remains parked.
+
 Current release: **0.2.1** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
 
 ## Architecture
