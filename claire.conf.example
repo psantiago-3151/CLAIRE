@@ -17,6 +17,10 @@ whisper_bin=bin/whisper-cli
 whisper_model=models/whisper/ggml-base.en.bin
 piper_bin=venv/bin/piper
 memory_dir=memory
+# 1 = include stored turns in the prompt; 0 = off
+memory_enabled=1
+# When more than 100 turns are stored, load this percent (most recent first)
+memory_load_pct=100
 # Linux arecord device: default, pulse, plughw:1,0. Empty = auto.
 mic_device=
 

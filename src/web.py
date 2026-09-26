@@ -48,6 +48,8 @@ _state = {
     "alert": None,
     "empty_captures": 0,
     "applied_fingerprint": "",
+    "memory_loading": False,
+    "memory_progress": 0,
 }
 EMPTY_CAPTURE_WARN_AFTER = 3
 _ollama_cache = {"ok": None, "at": 0.0}
@@ -109,6 +111,12 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
         "recording": recording,
         "speaking": speaking,
         "busy": _state["busy"],
+        "memory_loading": bool(_state.get("memory_loading")),
+        "memory_progress": int(_state.get("memory_progress") or 0),
+        "memory_enabled": bool(comms.MEMORY_ENABLED),
+        "memory_turns": comms.memory_turn_count(),
+        "memory_load_pct": comms.MEMORY_LOAD_PCT,
+        "memory_slider": comms.memory_turn_count() > comms.MEMORY_FULL_LOAD_BELOW,
         "ollama": _ollama_up(fresh=fresh_ollama),
         "ollama_hint": OLLAMA_SERVE_HINT,
         "mic": comms.microphone_status(),
@@ -132,11 +140,15 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
 
 
 def _stop_inner(quiet: bool = False):
+    comms._feed_cancel.set()
     if comms.comms.recording:
         comms.comms.stop_recording()
     comms.comms.interrupt(silent=quiet)
+    comms.finish_memory_cycle()
     _state["running"] = False
     _state["busy"] = False
+    _state["memory_loading"] = False
+    _state["memory_progress"] = 0
     _state["message"] = "Standby"
     _state["alert"] = None
     _state["empty_captures"] = 0
@@ -166,6 +178,9 @@ def _paint_turn(result: dict):
         _state["message"] = result["message"]
     elif result.get("action"):
         _state["message"] = result["action"]
+    # Unlock Record/Interrupt before Piper; ghosting is only for memory feed.
+    if result.get("action") != "thinking":
+        _state["busy"] = False
     _push_ui()
 
 
@@ -295,6 +310,22 @@ def _page_context(request: Request) -> dict:
             "default": "",
             "env_value": "",
         },
+        "memory_enabled_field": fields.get("memory_enabled") or {
+            "key": "memory_enabled",
+            "label": "Use conversation memory",
+            "value": "1",
+            "default": "1",
+            "env_value": "",
+            "env": "CLAIRE_MEMORY_ENABLED",
+        },
+        "memory_load_pct_field": fields.get("memory_load_pct") or {
+            "key": "memory_load_pct",
+            "label": "Memory to load (%)",
+            "value": "100",
+            "default": "100",
+            "env_value": "",
+            "env": "CLAIRE_MEMORY_LOAD_PCT",
+        },
         "phrases": comms.phrases_payload(),
         "phrases_json": json.dumps(comms.phrases_payload()),
         "app_version": comms.app_version(),
@@ -409,20 +440,43 @@ def start_assistant(body: Optional[ConfigUpdate] = None):
             return _snapshot()
         warnings = comms.startup_warnings()
         _state["running"] = True
-        _state["busy"] = False
         _state["heard"] = ""
         _state["reply"] = ""
         if warnings:
-            _state["message"] = "Started with warnings"
             _state["alert"] = {
                 "type": "setup",
                 "message": "\n".join(comms.format_startup_warnings(warnings)),
             }
         else:
-            _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
             _state["alert"] = None
         _state["applied_fingerprint"] = comms.disk_fingerprint()
+        comms._feed_cancel.clear()
+        _state["busy"] = False
+        _state["memory_loading"] = False
+        _state["memory_progress"] = 0
+        _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
     return _snapshot()
+
+
+def _feed_memory_then_ready():
+    def progress(pct, message):
+        _state["memory_progress"] = int(pct)
+        _state["message"] = message
+        _push_ui()
+
+    try:
+        comms.feed_memory_for_start(progress, cancel=comms._feed_cancel)
+    except Exception as exc:
+        _state["message"] = f"Memory load warning: {exc}"
+    finally:
+        with _lock:
+            _state["busy"] = False
+            _state["memory_loading"] = False
+            _state["memory_progress"] = 100
+            if _state["running"] and not comms._feed_cancel.is_set():
+                if not _state.get("alert"):
+                    _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
+        _push_ui()
 
 
 @app.post("/api/stop")

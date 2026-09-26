@@ -354,6 +354,24 @@ MEMORY_DIR = _setting(
     str(ROOT / "memory"),
     path=True,
 )
+MEMORY_FULL_LOAD_BELOW = 100
+
+
+def _truthy(value: str) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _load_memory_opts():
+    global MEMORY_ENABLED, MEMORY_LOAD_PCT
+    MEMORY_ENABLED = _truthy(_setting("CLAIRE_MEMORY_ENABLED", "memory_enabled", "1"))
+    try:
+        pct = float(_setting("CLAIRE_MEMORY_LOAD_PCT", "memory_load_pct", "100"))
+    except ValueError:
+        pct = 100.0
+    MEMORY_LOAD_PCT = max(1, min(100, pct))
+
+
+_load_memory_opts()
 MIC_DEVICE = _setting("CLAIRE_MIC_DEVICE", "mic_device", "")
 AI_NAME = _setting("CLAIRE_WAKE_WORD", "wake_word", "claire").lower()
 _mic_cache = {"at": 0.0, "status": None}
@@ -466,6 +484,8 @@ CONFIG_FIELDS = [
     {"key": "whisper_model", "env": "CLAIRE_WHISPER_MODEL", "label": "Whisper model", "group": "models", "ui": "admin", "default": "models/whisper/ggml-base.en.bin"},
     {"key": "piper_bin", "env": "CLAIRE_PIPER_BIN", "label": "Piper binary", "group": "models", "ui": "admin", "default": "venv/bin/piper"},
     {"key": "memory_dir", "env": "CLAIRE_MEMORY_DIR", "label": "Memory directory", "group": "models", "ui": "admin", "default": "memory"},
+    {"key": "memory_enabled", "env": "CLAIRE_MEMORY_ENABLED", "label": "Use conversation memory", "group": "models", "ui": "admin", "default": "1"},
+    {"key": "memory_load_pct", "env": "CLAIRE_MEMORY_LOAD_PCT", "label": "Memory to load (%)", "group": "models", "ui": "admin", "default": "100"},
     {"key": "mic_device", "env": "CLAIRE_MIC_DEVICE", "label": "Microphone device (Linux arecord; empty = auto)", "group": "models", "ui": "admin", "default": ""},
     {"key": "thinking_interval_secs", "env": "CLAIRE_THINKING_INTERVAL_SECS", "label": "Thinking reminder every (sec)", "group": "models", "ui": "admin", "default": "5"},
     {"key": "name_breath_secs", "env": "CLAIRE_NAME_BREATH_SECS", "label": "Pause before wake word (sec)", "group": "models", "ui": "admin", "default": "0.35"},
@@ -496,6 +516,10 @@ whisper_bin={whisper_bin}
 whisper_model={whisper_model}
 piper_bin={piper_bin}
 memory_dir={memory_dir}
+# 1 = feed stored turns into Ollama on Start; 0 = off
+memory_enabled={memory_enabled}
+# When more than 100 turns are stored, load this percent (most recent first)
+memory_load_pct={memory_load_pct}
 # Linux arecord device: default, pulse, plughw:1,0. Empty = auto.
 mic_device={mic_device}
 
@@ -530,6 +554,7 @@ def reload_settings():
     global QUIT_PHRASES, NEW_SESSION_PHRASE, CURRENT_FILE
     global THINKING_INTERVAL_SECS, BREATH_SECS
     global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT, WAKE_FUZZ_THRESHOLD
+    global MEMORY_ENABLED, MEMORY_LOAD_PCT
     CONF = _load_conf(CONF_PATH)
     LLM_MODEL = _setting("CLAIRE_LLM_MODEL", "llm_model", "qwen2.5:7b")
     VOICE_MODEL = _setting(
@@ -583,6 +608,7 @@ def reload_settings():
     _load_wait_secs()
     _load_phrase_mode()
     _load_phrases()
+    _load_memory_opts()
     CURRENT_FILE = os.path.join(MEMORY_DIR, "current.json")
 
 
@@ -641,6 +667,14 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
     if fuzz_pct < 50 or fuzz_pct > 100:
         raise ValueError("wake_fuzz_threshold must be between 50 and 100")
     current["wake_fuzz_threshold"] = f"{fuzz_pct:g}"
+    current["memory_enabled"] = "1" if _truthy(current.get("memory_enabled", "1")) else "0"
+    try:
+        mem_pct = float(current.get("memory_load_pct") or "100")
+    except ValueError as exc:
+        raise ValueError("memory_load_pct must be a number") from exc
+    if mem_pct < 1 or mem_pct > 100:
+        raise ValueError("memory_load_pct must be between 1 and 100")
+    current["memory_load_pct"] = f"{mem_pct:g}"
     for key in ("run_key", "record_key", "interrupt_key", "quit_key"):
         current[key] = current[key].lower()
     current["wake_word"] = current["wake_word"].lower()
@@ -654,10 +688,12 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
 
 
 def rebind():
-    global comms, memory, stop_requested, cli_running
+    global comms, memory, stop_requested, cli_running, _cycle_new_turns
     Path(MEMORY_DIR).mkdir(parents=True, exist_ok=True)
     comms = Comms()
-    memory = load_all_history()
+    refresh_disk_history()
+    apply_memory_window()
+    _cycle_new_turns = 0
     stop_requested = False
     cli_running = False
 
@@ -1252,19 +1288,38 @@ class Comms:
         self.speaking = False
         notify_ui()
 
-    def generate(self, prompt: str) -> str:
-        return ollama.generate(model=self.llm_model, prompt=prompt)["response"]
+    def generate(self, prompt: str, on_first=None) -> str:
+        chunks = []
+        seen = False
+        stream = ollama.generate(
+            model=self.llm_model,
+            prompt=prompt,
+            stream=True,
+            options={"num_predict": 1024},
+        )
+        for part in stream:
+            piece = part.get("response") or ""
+            if not piece:
+                continue
+            if not seen:
+                seen = True
+                if on_first:
+                    on_first()
+            chunks.append(piece)
+        return "".join(chunks)
 
     def generate_with_fillers(self, prompt: str) -> str:
         done = threading.Event()
+        first_token = threading.Event()
         box = {"response": None, "error": None}
 
         def _run():
             try:
-                box["response"] = self.generate(prompt)
+                box["response"] = self.generate(prompt, on_first=first_token.set)
             except Exception as exc:
                 box["error"] = exc
             finally:
+                first_token.set()
                 done.set()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -1274,26 +1329,27 @@ class Comms:
             return pick_phrase_entry(FILLER_ENTRIES)
 
         def play_filler(text: str):
-            if done.is_set():
+            if first_token.is_set():
                 return
             speaker = threading.Thread(target=self.speak, args=(text,), daemon=True)
             filler["thread"] = speaker
             speaker.start()
             while speaker.is_alive():
-                if done.wait(0.1):
+                if first_token.wait(0.1):
                     self.interrupt(silent=True)
                     speaker.join(timeout=3)
                     return
             speaker.join()
 
         interval = THINKING_INTERVAL_SECS
-        while not done.is_set():
-            if done.wait(interval):
+        while not first_token.is_set():
+            if first_token.wait(interval):
                 break
             play_filler(pick_phrase())
         self.interrupt(silent=True)
         if filler["thread"] is not None:
             filler["thread"].join(timeout=3)
+        done.wait()
         if box["error"] is not None:
             raise box["error"]
         return box["response"] or ""
@@ -1541,34 +1597,255 @@ def load_all_history() -> list:
         try:
             with open(path, "r", encoding="utf-8") as fp:
                 data = json.load(fp)
-                if isinstance(data, list):
-                    history.extend(data)
+                if not isinstance(data, list):
+                    continue
+                tagged = classify_history(data)
+                if tagged != data:
+                    with open(path, "w", encoding="utf-8") as out:
+                        json.dump(tagged, out, ensure_ascii=False, indent=2)
+                history.extend(tagged)
         except Exception:
             pass
     return history
 
 
+def refresh_disk_history() -> list:
+    global _disk_history
+    _disk_history = load_all_history()
+    return _disk_history
+
+
+def memory_turn_count() -> int:
+    return len(_disk_history)
+
+
+def select_memory_window(history: list, pct=None, *, threshold: int = None) -> list:
+    """Most recent turns. Below `threshold` (default 100), load all."""
+    if not history:
+        return []
+    if threshold is None:
+        threshold = MEMORY_FULL_LOAD_BELOW
+    n = len(history)
+    if n <= threshold:
+        return list(history)
+    if pct is None:
+        pct = MEMORY_LOAD_PCT
+    try:
+        pct = float(pct)
+    except (TypeError, ValueError):
+        pct = 100.0
+    pct = max(1.0, min(100.0, pct))
+    take = max(1, int((n * pct + 99) // 100))
+    return list(history[-take:])
+
+
+def _norm_mem_text(text: str) -> str:
+    text = (text or "").casefold()
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def classify_turn(turn: dict, earlier: list) -> str:
+    """good = feed; similar = feed first of the cluster only; duplicate = skip."""
+    user = _norm_mem_text(turn.get("user"))
+    ai = _norm_mem_text(turn.get("ai"))
+    ai_long = len(ai) >= 80
+    for prev in earlier:
+        pu = _norm_mem_text(prev.get("user"))
+        pa = _norm_mem_text(prev.get("ai"))
+        fu = fuzz.ratio(user, pu) if user and pu else 0
+        fa = fuzz.ratio(ai, pa) if ai and pa else 0
+        if fu >= 92 and fa >= 92:
+            return "duplicate"
+        if fu >= 85:
+            return "similar"
+        if ai_long and fa >= 90:
+            return "similar"
+        if fu >= 70 and fa >= 88:
+            return "similar"
+    return "good"
+
+
+def classify_history(turns: list) -> list:
+    out = []
+    for turn in turns or []:
+        item = dict(turn)
+        item["quality"] = classify_turn(item, out)
+        out.append(item)
+    return out
+
+
+def select_smart_feed(turns: list) -> list:
+    """Drop duplicates and extra similars; keep good turns and the first of a similar cluster."""
+    fed = []
+    for turn in turns or []:
+        quality = turn.get("quality") or classify_turn(turn, fed)
+        if quality == "duplicate":
+            continue
+        if quality == "similar":
+            continue
+        fed.append(turn)
+    return fed
+
+
+def apply_memory_window() -> list:
+    global memory
+    if not MEMORY_ENABLED:
+        memory = []
+        return memory
+    window = select_memory_window(_disk_history, MEMORY_LOAD_PCT)
+    memory = select_smart_feed(window)
+    return memory
+
+
+def _turn_key(turn: dict) -> tuple:
+    return (turn.get("user") or "", turn.get("ai") or "")
+
+
+def history_prompt_block(turns: list, name: str) -> str:
+    lines = ["Conversation history:"]
+    for turn in turns:
+        lines.append(f"User: {turn.get('user', '')}\n{name}: {turn.get('ai', '')}")
+    lines.append("--- End of recovered memory ---")
+    return "\n".join(lines)
+
+
+def memory_feed_needed() -> bool:
+    """True when Start should upload turns to Ollama. Zero store → False."""
+    if not MEMORY_ENABLED:
+        return False
+    window = apply_memory_window()
+    if not window:
+        return False
+    keys = tuple(_turn_key(t) for t in window)
+    return keys != _fed_keys
+
+
+def feed_memory_for_start(progress=None, cancel=None) -> dict:
+    """Apply the RAM window (preloaded on boot) and warm Ollama with new turns.
+
+    Returns how many turns were fed. Skips the Ollama call when the window
+    matches what this process already uploaded. Does not speak or save.
+    """
+    global _fed_keys, memory
+
+    def report(pct, message):
+        if progress:
+            progress(pct, message)
+
+    if cancel is not None and cancel.is_set():
+        return {"fed": 0, "skipped": True, "reason": "cancelled"}
+    if not MEMORY_ENABLED:
+        memory = []
+        _fed_keys = ()
+        return {"fed": 0, "skipped": True, "reason": "disabled"}
+
+    window = apply_memory_window()
+    keys = tuple(_turn_key(t) for t in window)
+    if not window:
+        _fed_keys = ()
+        return {"fed": 0, "skipped": True, "reason": "empty"}
+    if keys == _fed_keys:
+        return {"fed": 0, "skipped": True, "reason": "unchanged"}
+
+    extra = window
+    if _fed_keys and keys[: len(_fed_keys)] == _fed_keys:
+        extra = window[len(_fed_keys) :]
+    if not extra:
+        _fed_keys = keys
+        return {"fed": 0, "skipped": True, "reason": "empty"}
+    report(10, "Selecting stored turns…")
+    report(40, f"Loading {len(extra)} turn(s) into the model…")
+
+    if cancel is not None and cancel.is_set():
+        return {"fed": 0, "skipped": True, "reason": "cancelled"}
+
+    name = AI_NAME.capitalize()
+    if extra is window:
+        body = history_prompt_block(window, name)
+        prompt = (
+            f"You are {name}. The following is your local conversation memory. "
+            "Remember it. Reply with the single word Ready.\n\n"
+            f"{body}\n"
+        )
+    else:
+        body = history_prompt_block(extra, name)
+        prompt = (
+            f"Additional conversation turns since the last load. "
+            "Add them to what you already have. Reply with the single word Ready.\n\n"
+            f"{body}\n"
+        )
+    try:
+        if comms is not None:
+            comms.generate(prompt)
+    except Exception as exc:
+        log(f"Memory feed warning: {exc}")
+        report(100, "Memory loaded (model feed failed; turns still in RAM)")
+        _fed_keys = keys
+        return {"fed": len(extra), "skipped": False, "reason": "ollama_error"}
+    if cancel is not None and cancel.is_set():
+        return {"fed": 0, "skipped": True, "reason": "cancelled"}
+    _fed_keys = keys
+    report(100, "Memory loaded")
+    return {"fed": len(extra), "skipped": False, "reason": "ok"}
+
+
+def finish_memory_cycle() -> int:
+    """Stop: turns were stored as Ollama replied. No extra write if none this cycle."""
+    global _cycle_new_turns
+    n = _cycle_new_turns
+    _cycle_new_turns = 0
+    if not MEMORY_ENABLED:
+        log("Stop: memory disabled; nothing stored.")
+        return 0
+    if n == 0:
+        log("Stop: no new conversation turns to store.")
+        return 0
+    log(f"Stop: {n} turn(s) stored in {CURRENT_FILE}.")
+    refresh_disk_history()
+    return n
+
+
 def rename_current_and_start_new():
+    global _fed_keys, _cycle_new_turns
     if os.path.exists(CURRENT_FILE):
         os.rename(CURRENT_FILE, os.path.join(MEMORY_DIR, f"{timestamp()}_session.json"))
     with open(CURRENT_FILE, "w", encoding="utf-8") as fp:
         json.dump([], fp)
+    refresh_disk_history()
+    apply_memory_window()
+    _fed_keys = ()
+    _cycle_new_turns = 0
 
 
 def save_turn(turn: dict):
+    global _cycle_new_turns, _disk_history
+    if not MEMORY_ENABLED:
+        return
+    item = dict(turn)
+    item["quality"] = classify_turn(item, _disk_history)
     try:
         with open(CURRENT_FILE, "r+", encoding="utf-8") as fp:
             data = json.load(fp)
-            data.append(turn)
+            if not isinstance(data, list):
+                data = []
+            data.append(item)
             fp.seek(0)
             json.dump(data, fp, ensure_ascii=False, indent=2)
             fp.truncate()
     except Exception:
         with open(CURRENT_FILE, "w", encoding="utf-8") as fp:
-            json.dump([turn], fp, ensure_ascii=False, indent=2)
+            json.dump([item], fp, ensure_ascii=False, indent=2)
+    _cycle_new_turns += 1
+    _disk_history.append(item)
 
 
-memory = load_all_history()
+_disk_history = []
+_fed_keys = ()
+_cycle_new_turns = 0
+_feed_cancel = threading.Event()
+memory = refresh_disk_history()
+apply_memory_window()
 
 
 def _normalize_wake_text(text: str) -> str:
@@ -1805,9 +2082,11 @@ def cli_action_for_key(key: str, *, running: bool) -> str:
 
 def _cli_stop_loop(*, quiet: bool = False, hint: bool = True):
     global cli_running
+    _feed_cancel.set()
     if comms.recording:
         comms.stop_recording()
     comms.interrupt(silent=quiet)
+    finish_memory_cycle()
     cli_running = False
     log("Voice loop stopped.")
     log("Standby")
@@ -1830,6 +2109,7 @@ def _cli_start_loop() -> bool:
     if warnings:
         for line in format_startup_warnings(warnings):
             log(line)
+    _feed_cancel.clear()
     cli_running = True
     log(f"{AI_NAME.capitalize()} is running")
     _print_cli_keys()
@@ -1950,18 +2230,18 @@ def process_utterance(user_text: str, on_result=None) -> dict:
     name = AI_NAME.capitalize()
     prompt = (
         f"You are {name}, a helpful, friendly, and highly intelligent AI assistant. "
-        "You have perfect recall of our entire conversation history, no matter how long it is. "
+        "You have a local conversation store on this machine. "
         "Always stay in character and continue the conversation naturally.\n"
         "Dates in conversation history are from when those turns happened. "
         "They are not today's date. After the history you will get a system clock; "
         "that clock is the only ground truth for 'today', 'now', the day of the week, "
         "and the current time. Do not guess dates or use placeholders.\n\n"
-        "Conversation history:\n"
     )
-    for turn in memory:
-        prompt += f"User: {turn['user']}\n{name}: {turn['ai']}\n"
+    if MEMORY_ENABLED and memory:
+        prompt += history_prompt_block(memory, name) + "\n"
+    else:
+        prompt += "No stored conversation turns are loaded this cycle.\n"
     prompt += (
-        "\n--- End of recovered memory ---\n"
         "System clock (authoritative; use this for any question about today or now):\n"
         f"{date_context(clean)}\n\n"
         f"User: {clean}\n{name}:"
@@ -1987,8 +2267,9 @@ def process_utterance(user_text: str, on_result=None) -> dict:
             sys.exit(1)
         return result
     turn = {"user": user_text, "ai": response}
-    memory.append(turn)
-    save_turn(turn)
+    if MEMORY_ENABLED:
+        memory.append(turn)
+        save_turn(turn)
     result = emit({
         "ok": True,
         "action": "reply",

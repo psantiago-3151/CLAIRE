@@ -184,6 +184,31 @@ def main() -> int:
     check(cfg.status_code == 200, f"GET /api/config {cfg.status_code}")
     fields = [f["key"] for f in cfg.json().get("fields", [])]
     check("wake_word" in fields and "wake_fuzz_threshold" in fields, "config fields")
+    check("memory_enabled" in fields and "memory_load_pct" in fields, "memory config fields")
+    check("memory_turns" in body, "status memory_turns")
+    check(b"Use conversation memory" in home.content, "HTML memory toggle")
+
+    check(comms.select_memory_window([], 100) == [], "zero turns selects nothing")
+    tagged = comms.classify_history([
+        {"user": "Claire, I'm Phil.", "ai": "Hello Phil."},
+        {"user": "Claire, I'm Phil.", "ai": "Hello Phil."},
+        {"user": "Claire, who am I?", "ai": "It seems there was a mix-up in the conversation. " + "x" * 80},
+        {"user": "Claire, what is my name?", "ai": "It seems there was a mix-up in the conversation. " + "x" * 80},
+    ])
+    check(tagged[0]["quality"] == "good", f"first turn good, got {tagged[0]['quality']}")
+    check(tagged[1]["quality"] == "duplicate", f"copy is duplicate, got {tagged[1]['quality']}")
+    check(tagged[3]["quality"] == "similar", f"same waffle is similar, got {tagged[3]['quality']}")
+    fed = comms.select_smart_feed(tagged)
+    check(len(fed) == 2, f"smart feed kept {len(fed)} {fed}")
+    check(fed[0]["user"].startswith("Claire, I'm Phil"), f"kept name turn {fed[0]['user']}")
+    check(fed[1]["user"].startswith("Claire, who am I"), f"kept first mix-up {fed[1]['user']}")
+    small = [{"user": str(i), "ai": str(i)} for i in range(40)]
+    win = comms.select_memory_window(small, 10)
+    check(len(win) == 40, f"under 100 turns loads all, got {len(win)}")
+    big = [{"user": str(i), "ai": str(i)} for i in range(150)]
+    win = comms.select_memory_window(big, 50)
+    check(len(win) == 75, f"150 turns at 50% -> 75, got {len(win)}")
+    check(win[0]["user"] == "75", f"most recent window starts at 75, got {win[0]['user']}")
     check("thinking" in (cfg.json().get("phrases") or {}), "phrases in config")
 
     if errors:

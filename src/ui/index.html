@@ -250,6 +250,38 @@
     }
     .row button:disabled { opacity: 0.4; cursor: not-allowed; }
     .row button.hot { background: var(--coral); border-color: var(--coral); color: #FFFFFF; }
+    .memory-load {
+      margin: 12px 0 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(8, 42, 56, 0.45);
+    }
+    .memory-load[hidden] { display: none; }
+    .mem-bar {
+      height: 8px;
+      border-radius: 99px;
+      background: rgba(102, 217, 246, 0.18);
+      overflow: hidden;
+    }
+    .mem-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--light);
+      transition: width 0.2s ease;
+    }
+    .memory-load p {
+      margin: 8px 0 0;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .memory-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0 0;
+    }
+    .memory-toggle input { width: auto; }
     .status {
       margin: 14px 0 0;
       padding: 14px 16px;
@@ -583,6 +615,12 @@
         <button id="record" type="button" disabled>Record</button>
         <button id="interrupt" type="button" disabled>Interrupt speech</button>
       </div>
+      <div id="memory-load" class="memory-load" hidden>
+        <div class="mem-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="memory-bar">
+          <div class="mem-fill" id="memory-fill"></div>
+        </div>
+        <p id="memory-load-label">Loading memory…</p>
+      </div>
       <section class="status" aria-live="polite">
         <p id="message">{{ status.message }}</p>
         <p>Heard: <span class="heard" id="heard">{{ status.heard or "—" }}</span></p>
@@ -689,10 +727,40 @@
           <p class="lede">Binaries, model files, memory folder, and which microphone to use. Leave microphone on Auto unless Record is silent or picking the wrong input.</p>
           <div class="fields">
             {% for field in admin_fields %}
-            {% if field.key not in ("phrase_select_mode", "preferred_boost_pct", "wake_fuzz_threshold", "thinking_interval_secs", "name_breath_secs") %}
+            {% if field.key not in ("phrase_select_mode", "preferred_boost_pct", "wake_fuzz_threshold", "thinking_interval_secs", "name_breath_secs", "memory_enabled", "memory_load_pct") %}
             {{ admin_input(field) }}
             {% endif %}
             {% endfor %}
+            <label class="wide memory-toggle">
+              <span>
+                Use conversation memory
+                {% if memory_enabled_field.env_value %}<span class="env">overridden by {{ memory_enabled_field.env }}</span>{% endif %}
+              </span>
+              <input
+                id="memory_enabled"
+                name="memory_enabled"
+                type="checkbox"
+                value="1"
+                data-default="1"
+                {% if memory_enabled_field.value in ("1", "true", "yes", "on") %}checked{% endif %}
+              />
+            </label>
+            <div id="memory-pct-row" class="wide"{% if not status.memory_slider %} hidden{% endif %}>
+              <label class="wide">
+                <span>Memory to load: <strong id="memory-pct-label">{{ memory_load_pct_field.value }}%</strong> (most recent)</span>
+                <input
+                  id="memory_load_pct"
+                  name="memory_load_pct"
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value="{{ memory_load_pct_field.value }}"
+                  data-default="100"
+                />
+              </label>
+              <p class="lede">Shown when more than 100 turns are stored. Default is all (100%).</p>
+            </div>
           </div>
         </section>
 
@@ -835,6 +903,10 @@
       const values = {};
       document.querySelectorAll("#form [name]").forEach((el) => {
         if (el.closest(".phrase-list") || el.id === "thinking-new" || el.id === "wake-new") return;
+        if (el.type === "checkbox") {
+          values[el.name] = el.checked ? "1" : "0";
+          return;
+        }
         values[el.name] = el.value;
       });
       return values;
@@ -870,6 +942,9 @@
       const fuzz = $("wake_fuzz_threshold");
       const flab = $("fuzz-label");
       if (fuzz && flab) flab.textContent = `${fuzz.value}%`;
+      const mem = $("memory_load_pct");
+      const mlab = $("memory-pct-label");
+      if (mem && mlab) mlab.textContent = `${mem.value}%`;
     }
 
     function renderPhraseList(listId, entries) {
@@ -1016,12 +1091,25 @@
       $("ollama-note").classList.toggle("show", !ollamaUp);
       $("admin-toggle").disabled = !ollamaUp;
       powerLabel(s);
-      $("power").disabled = !ollamaUp || !micOk || (busy && running);
-      $("record").disabled = !ollamaUp || !micOk || !running || busy;
-      $("interrupt").disabled = !ollamaUp || !running;
+      const memLoad = !!s.memory_loading;
+      $("power").disabled = !ollamaUp || !micOk;
+      $("record").disabled = !ollamaUp || !micOk || !running || busy || memLoad;
+      $("interrupt").disabled = !ollamaUp || !running || memLoad;
       $("record").textContent = s.recording ? "Stop recording" : "Record";
       $("record").classList.toggle("hot", !!s.recording);
       $("message").textContent = s.message || (running ? "Running" : "Standby");
+      const memPanel = $("memory-load");
+      const loading = !!s.memory_loading;
+      if (memPanel) memPanel.hidden = !loading;
+      const fill = $("memory-fill");
+      const bar = $("memory-bar");
+      const lab = $("memory-load-label");
+      const pct = Math.max(0, Math.min(100, Number(s.memory_progress) || 0));
+      if (fill) fill.style.width = `${pct}%`;
+      if (bar) bar.setAttribute("aria-valuenow", String(pct));
+      if (lab) lab.textContent = s.message || "Loading memory…";
+      const pctRow = $("memory-pct-row");
+      if (pctRow) pctRow.hidden = !s.memory_slider;
       const heard = s.heard || "—";
       if (heard !== lastHeard) {
         lastHeard = heard;
@@ -1148,7 +1236,9 @@
       applyPhrases(loadedPhrases);
       Object.keys(baseline).forEach((key) => {
         const el = document.querySelector(`[name="${key}"]`);
-        if (el) el.value = baseline[key];
+        if (!el) return;
+        if (el.type === "checkbox") el.checked = baseline[key] === "1";
+        else el.value = baseline[key];
       });
       markClean();
       $("admin-leave").hidden = true;
@@ -1161,6 +1251,7 @@
     if ($("phrase_select_mode")) $("phrase_select_mode").addEventListener("change", syncBoostUi);
     if ($("preferred_boost_pct")) $("preferred_boost_pct").addEventListener("input", syncBoostUi);
     if ($("wake_fuzz_threshold")) $("wake_fuzz_threshold").addEventListener("input", syncBoostUi);
+    if ($("memory_load_pct")) $("memory_load_pct").addEventListener("input", syncBoostUi);
     $("thinking-add").addEventListener("click", () => addPhrase("thinking-list", "thinking-new"));
     $("wake-add").addEventListener("click", () => addPhrase("wake-list", "wake-new"));
 
@@ -1239,7 +1330,8 @@
             el.appendChild(opt);
           }
         }
-        el.value = fallback;
+        if (el.type === "checkbox") el.checked = fallback === "1" || fallback === "true";
+        else el.value = fallback;
       });
       if (!running) powerLabel({ wake_word: fieldValue("wake_word") });
       $("save-hint").textContent = "Defaults restored on the form.";

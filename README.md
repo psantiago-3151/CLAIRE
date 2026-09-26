@@ -17,7 +17,9 @@ macOS and Linux. You run CLAIRE in the **web UI** at [http://127.0.0.1:8742](htt
 
 **Linux is complete and tested** on Fedora / Nobara: web UI voice loop (Whisper in, Piper out, local Ollama), wake word, interrupt, Stop vs Shut down. macOS was the original path. The clone is still plumbing — you install Ollama, `whisper-cli`, and models.
 
-Current release: **0.2.2** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
+Current release: **0.2.3** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
+
+**0.2.3** — memory you can switch off, recency % when the store grows past 100 turns, `good` / `similar` / `duplicate` tags so Start does not feed photocopies, streamed Ollama so thinking fillers stop on the first token, Interrupt stays clickable while Piper talks. Linux web UI path tested. Changing the wake word still **resets the experience** (assistant name in the prompt); old JSON is not deleted. See **Runtime notes**. The keyboard CLI remains parked.
 
 ## Architecture
 
