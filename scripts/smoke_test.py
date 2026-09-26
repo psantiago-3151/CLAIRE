@@ -108,7 +108,7 @@ def main() -> int:
     block = comms.cli_key_block(running=False, recording=False)
     check(block[0] == "", f"whitespace before keys {block!r}")
     check(len(block) == 3, f"key menu is blank + 2 lines {block!r}")
-    check(block[1].startswith("-") and "key bindings" in block[1], f"wide rule {block[1]!r}")
+    check("-=" in block[1] and "key bindings" in block[1], f"wide rule {block[1]!r}")
     check(len(block[1]) == len(block[2]), f"rule width {len(block[1])} matches keys {len(block[2])}")
     run_block = comms.cli_key_block(running=True, recording=False)
     check(

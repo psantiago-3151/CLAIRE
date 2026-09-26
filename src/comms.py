@@ -1753,16 +1753,22 @@ def cli_key_hint(*, running=None, recording=None) -> str:
     return " ".join(parts)
 
 
+def _key_rule_stripe(n: int) -> str:
+    if n <= 0:
+        return ""
+    return ("-=" * ((n + 1) // 2))[:n]
+
+
 def cli_key_rule(keys_line: str) -> str:
-    """Dash rule the same width as the keys line, label centered."""
+    """-= rule the same width as the keys line, label centered."""
     label = " key bindings "
     width = max(len(keys_line), len(label) + 2)
     inner = width - len(label)
     left = inner // 2
     right = inner - left
-    rule = ("-" * left) + label + ("-" * right)
+    rule = _key_rule_stripe(left) + label + _key_rule_stripe(right)
     if len(rule) < width:
-        rule += "-" * (width - len(rule))
+        rule += _key_rule_stripe(width - len(rule))
     return rule
 
 
