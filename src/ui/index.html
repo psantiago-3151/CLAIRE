@@ -140,6 +140,12 @@
       color: var(--ink);
       font-size: 0.88rem;
     }
+    #setup-note {
+      white-space: pre-wrap;
+      text-align: left;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
     body.ollama-down h1,
     body.ollama-down #badge {
       opacity: 0.35;
@@ -567,6 +573,7 @@
     <p id="pending-note" class="pending{% if status.pending_restart %} show{% endif %}" role="status">
       Settings have been modified. Stop and Start the assistant to apply them.
     </p>
+    <p id="setup-note" class="notice hazard" hidden role="status"></p>
 
     <section class="ops">
       <button id="power" class="power{% if status.running %} running{% endif %}" type="button">
@@ -1028,6 +1035,13 @@
       }
       setFormDisabled(running || !ollamaUp, !ollamaUp);
       if ($("pending-note")) $("pending-note").classList.toggle("show", !!s.pending_restart);
+      const setupNote = $("setup-note");
+      if (setupNote) {
+        const setup = s.alert && s.alert.type === "setup" && s.alert.message;
+        setupNote.hidden = !setup;
+        setupNote.classList.toggle("show", !!setup);
+        if (setup) setupNote.textContent = s.alert.message;
+      }
       updateDirty();
       const alertBox = $("mic-alert");
       if (alertBox) {

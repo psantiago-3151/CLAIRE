@@ -15,9 +15,9 @@ A fully configurable voice layer for local LLMs (Ollama — Llama, Qwen, Mistral
 
 macOS and Linux. Web UI at [http://127.0.0.1:8742](http://127.0.0.1:8742). Windows is not supported yet.
 
-**Linux is complete and tested** on Fedora / Nobara: web UI voice loop (Whisper in, Piper out, local Ollama), wake word, interrupt, Stop vs Shut down. macOS was the original path. The clone is still plumbing — you install Ollama, `whisper-cli`, and models. The keyboard CLI remains parked.
+**Linux is complete and tested** on Fedora / Nobara: web UI voice loop (Whisper in, Piper out, local Ollama), wake word, interrupt, Stop vs Shut down. macOS was the original path. The clone is still plumbing — you install Ollama, `whisper-cli`, and models.
 
-Current release: **0.2.1** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
+Current release: **0.2.2** (see `version` in `pyproject.toml`). The UI header and `GET /api/status` show the same value.
 
 ## Architecture
 
@@ -212,7 +212,23 @@ python src/web.py
 
 Open [http://127.0.0.1:8742](http://127.0.0.1:8742). Hamburger → **Admin settings** for models, paths, and canned speech. **Start**, then **Record** / **Stop recording**. **Interrupt** stops speech.
 
-The keyboard text CLI (`python src/comms.py`) is parked. Use the web UI.
+The **web UI is the default** (Admin, phrases, badges, Shut down). Keyboard CLI is a thin Start/Stop loop:
+
+```bash
+python src/comms.py
+```
+
+| Key | Action |
+|---|---|
+| Space | **Start** / **Stop** (voice loop) |
+| Tab | **Record** (only while running) |
+| F12 | **Interrupt** |
+| Esc or Ctrl+C | **Shut down** (exits the process) |
+| Spoken **exit** / **goodbye** / **shut down** | **Stop** (loop off; CLI stays in Standby) |
+
+Key Bindings sit above the conversation log (reprinted on Start/Stop, not after each reply). Change models and voices in the web UI or `claire.conf`, then **Start**.
+
+On launch, missing Whisper / Piper / mic paths are **warnings**. If Ollama is not running, `python src/comms.py` prints the error and **exits** so you can run `ollama serve`. If `CLAIRE_UI_PORT` (default 8742) is already in use, the process does not start.
 
 Offline check (no mic, no generate):
 
@@ -259,7 +275,7 @@ Edit in **Admin** (add on top, then **Showing Thinking Entries** / **Show Wake-w
 |---|---|
 | `src/web.py` | FastAPI UI |
 | `src/ui/index.html` | Config page |
-| `src/comms.py` | Mic, Whisper, Ollama, Piper, loop |
+| `src/comms.py` | Mic, Whisper, Ollama, Piper, loop, keyboard CLI |
 | `pyproject.toml` | Python package metadata and default dependencies |
 | `requirements.txt` | Same dependencies for `pip install -r` |
 | `claire.conf.example` | Settings template |

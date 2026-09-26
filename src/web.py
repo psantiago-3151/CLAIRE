@@ -123,6 +123,7 @@ def _snapshot(*, fresh_ollama: bool = False) -> dict:
             and _state.get("applied_fingerprint")
             and comms.disk_fingerprint() != _state.get("applied_fingerprint")
         ),
+        "run_key": comms.RUN_KEY,
         "record_key": comms.RECORD_KEY,
         "interrupt_key": comms.INTERRUPT_KEY,
         "quit_key": comms.QUIT_KEY,
@@ -186,7 +187,13 @@ def _finish_recording():
         _state["message"] = "Heard"
         _push_ui()
         if not _ollama_up(fresh=True):
-            _state["message"] = OLLAMA_SERVE_HINT
+            with _lock:
+                _stop_inner(quiet=True)
+                _state["message"] = comms.OLLAMA_DOWN_ERROR
+                _state["alert"] = {
+                    "type": "setup",
+                    "message": comms.OLLAMA_DOWN_ERROR,
+                }
             _push_ui()
             return
         _state["alert"] = None
@@ -195,10 +202,24 @@ def _finish_recording():
         if result.get("action") == "quit":
             with _lock:
                 _stop_inner()
+        elif result.get("action") == "ollama_down":
+            with _lock:
+                _stop_inner(quiet=True)
+            _state["message"] = result.get("message") or comms.OLLAMA_DOWN_ERROR
+            _state["alert"] = {
+                "type": "setup",
+                "message": _state["message"],
+            }
         elif _state["running"] and result.get("action") == "reply":
             _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
     except Exception as exc:
-        _state["message"] = f"{type(exc).__name__}: {exc}"
+        err = comms.ollama_error_text(exc)
+        _state["message"] = err
+        if err == comms.OLLAMA_DOWN_ERROR:
+            with _lock:
+                _stop_inner(quiet=True)
+            _state["message"] = err
+            _state["alert"] = {"type": "setup", "message": err}
     finally:
         _state["busy"] = False
         _push_ui()
@@ -378,22 +399,28 @@ def start_assistant(body: Optional[ConfigUpdate] = None):
         else:
             comms.reload_settings()
         comms.rebind()
-        missing = comms.comms.missing()
-        if missing:
-            _state["message"] = "Setup problems"
-            raise HTTPException(status_code=400, detail=missing)
         if not _ollama_up(fresh=True):
-            _state["message"] = OLLAMA_SERVE_HINT
-            raise HTTPException(status_code=400, detail=OLLAMA_SERVE_HINT)
-        mic = comms.microphone_status(fresh=True)
-        if not mic.get("ok"):
-            _state["message"] = mic.get("hint") or MIC_HINT
-            raise HTTPException(status_code=400, detail=_state["message"])
+            _state["running"] = False
+            _state["message"] = comms.OLLAMA_DOWN_ERROR
+            _state["alert"] = {
+                "type": "setup",
+                "message": comms.OLLAMA_DOWN_ERROR,
+            }
+            return _snapshot()
+        warnings = comms.startup_warnings()
         _state["running"] = True
         _state["busy"] = False
         _state["heard"] = ""
         _state["reply"] = ""
-        _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
+        if warnings:
+            _state["message"] = "Started with warnings"
+            _state["alert"] = {
+                "type": "setup",
+                "message": "\n".join(comms.format_startup_warnings(warnings)),
+            }
+        else:
+            _state["message"] = f"{_wake_label(comms.AI_NAME)} is running"
+            _state["alert"] = None
         _state["applied_fingerprint"] = comms.disk_fingerprint()
     return _snapshot()
 
@@ -511,7 +538,15 @@ def main():
     global _server
     import uvicorn
 
+    if comms.ui_port_in_use(HOST, PORT):
+        print(
+            f"Warning: port {PORT} is already in use on {HOST}. Not starting.",
+            flush=True,
+        )
+        print(f"Open the running UI at http://{HOST}:{PORT}", flush=True)
+        raise SystemExit(1)
     print(f"CLAIRE {comms.app_version()}  http://{HOST}:{PORT}", flush=True)
+    comms.print_startup_warnings()
     config = uvicorn.Config(
         app, host=HOST, port=PORT, log_level="warning", access_log=False
     )

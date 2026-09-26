@@ -32,7 +32,8 @@ wake_fuzz_threshold=85
 # Wake word (matched anywhere in the transcript)
 wake_word=claire
 
-# Keyboard names for the parked text CLI. Unused while the web UI is the control surface.
+# Keyboard names for python src/comms.py
+run_key=space
 record_key=tab
 interrupt_key=f12
 quit_key=esc

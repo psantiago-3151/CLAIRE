@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """CLAIRE: mic, STT, LLM, TTS, and the voice loop.
 
-Control surface: python src/web.py  (venv active)
-The sshkeyboard text CLI is parked until it matches the web UI.
+Web UI:  python src/web.py
+CLI:     python src/comms.py
 """
 import fcntl
 import glob
@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -37,9 +38,11 @@ def app_version() -> str:
         return "0.0.0"
     match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
     return match.group(1) if match else "0.0.0"
-# Parked: Tab / F12 / Esc via sshkeyboard. Flip True when the text CLI
-# matches the web UI. Until then, python src/web.py is the only control surface.
+
+
+# True only while python src/comms.py is the control surface (set in main).
 CLI_INTERACTIVE = False
+cli_running = False
 try:
     from dotenv import load_dotenv
 
@@ -436,6 +439,7 @@ def microphone_status(*, fresh: bool = False) -> dict:
     _mic_cache["status"] = status
     _mic_cache["at"] = now
     return status
+RUN_KEY = _setting("CLAIRE_RUN_KEY", "run_key", "space").lower()
 RECORD_KEY = _setting("CLAIRE_RECORD_KEY", "record_key", "tab").lower()
 INTERRUPT_KEY = _setting("CLAIRE_INTERRUPT_KEY", "interrupt_key", "f12").lower()
 QUIT_KEY = _setting("CLAIRE_QUIT_KEY", "quit_key", "esc").lower()
@@ -469,9 +473,10 @@ CONFIG_FIELDS = [
     {"key": "preferred_boost_pct", "env": "CLAIRE_PREFERRED_BOOST", "label": "Preferred mix (%)", "group": "models", "ui": "admin", "default": "0"},
     {"key": "wake_fuzz_threshold", "env": "CLAIRE_WAKE_FUZZ", "label": "Wake-word match (%)", "group": "models", "ui": "admin", "default": "85"},
     {"key": "wake_word", "env": "CLAIRE_WAKE_WORD", "label": "Wake word", "group": "runtime", "ui": "visible", "default": "claire"},
+    {"key": "run_key", "env": "CLAIRE_RUN_KEY", "label": "Start/Stop key", "group": "runtime", "ui": "hidden", "default": "space"},
     {"key": "record_key", "env": "CLAIRE_RECORD_KEY", "label": "Record key", "group": "runtime", "ui": "hidden", "default": "tab"},
     {"key": "interrupt_key", "env": "CLAIRE_INTERRUPT_KEY", "label": "Interrupt speech key", "group": "runtime", "ui": "hidden", "default": "f12"},
-    {"key": "quit_key", "env": "CLAIRE_QUIT_KEY", "label": "Quit key", "group": "runtime", "ui": "hidden", "default": "esc"},
+    {"key": "quit_key", "env": "CLAIRE_QUIT_KEY", "label": "Shut down key (web UI)", "group": "runtime", "ui": "hidden", "default": "esc"},
     {"key": "quit_phrases", "env": "CLAIRE_QUIT_PHRASES", "label": "Spoken quit phrases", "group": "runtime", "ui": "visible", "default": "exit,goodbye,shut down,shutdown"},
     {"key": "new_session_phrase", "env": "CLAIRE_NEW_SESSION_PHRASE", "label": "New session phrase", "group": "runtime", "ui": "visible", "default": "scratch that"},
 ]
@@ -507,7 +512,8 @@ wake_fuzz_threshold={wake_fuzz_threshold}
 # Wake word (matched anywhere in the transcript)
 wake_word={wake_word}
 
-# Keyboard names for the parked text CLI. Unused while the web UI is the control surface.
+# Keyboard names for python src/comms.py (hidden in the web Admin form)
+run_key={run_key}
 record_key={record_key}
 interrupt_key={interrupt_key}
 quit_key={quit_key}
@@ -520,7 +526,7 @@ new_session_phrase={new_session_phrase}
 
 def reload_settings():
     global CONF, LLM_MODEL, VOICE_MODEL, VOICE_SPEAKER, WHISPER_BIN, WHISPER_MODEL
-    global PIPER_BIN, MEMORY_DIR, MIC_DEVICE, AI_NAME, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
+    global PIPER_BIN, MEMORY_DIR, MIC_DEVICE, AI_NAME, RUN_KEY, RECORD_KEY, INTERRUPT_KEY, QUIT_KEY
     global QUIT_PHRASES, NEW_SESSION_PHRASE, CURRENT_FILE
     global THINKING_INTERVAL_SECS, BREATH_SECS
     global PHRASE_SELECT_MODE, PREFERRED_BOOST_PCT, WAKE_FUZZ_THRESHOLD
@@ -560,6 +566,7 @@ def reload_settings():
     MIC_DEVICE = _setting("CLAIRE_MIC_DEVICE", "mic_device", "")
     _mic_cache["status"] = None
     AI_NAME = _setting("CLAIRE_WAKE_WORD", "wake_word", "claire").lower()
+    RUN_KEY = _setting("CLAIRE_RUN_KEY", "run_key", "space").lower()
     RECORD_KEY = _setting("CLAIRE_RECORD_KEY", "record_key", "tab").lower()
     INTERRUPT_KEY = _setting("CLAIRE_INTERRUPT_KEY", "interrupt_key", "f12").lower()
     QUIT_KEY = _setting("CLAIRE_QUIT_KEY", "quit_key", "esc").lower()
@@ -634,7 +641,7 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
     if fuzz_pct < 50 or fuzz_pct > 100:
         raise ValueError("wake_fuzz_threshold must be between 50 and 100")
     current["wake_fuzz_threshold"] = f"{fuzz_pct:g}"
-    for key in ("record_key", "interrupt_key", "quit_key"):
+    for key in ("run_key", "record_key", "interrupt_key", "quit_key"):
         current[key] = current[key].lower()
     current["wake_word"] = current["wake_word"].lower()
     global CONF_PATH, CONF
@@ -647,17 +654,126 @@ def save_config(updates: dict, *, apply: bool = True) -> dict:
 
 
 def rebind():
-    global comms, memory, stop_requested
+    global comms, memory, stop_requested, cli_running
     Path(MEMORY_DIR).mkdir(parents=True, exist_ok=True)
     comms = Comms()
     memory = load_all_history()
     stop_requested = False
+    cli_running = False
 
 
 def _key_label(key: str) -> str:
     if len(key) > 1 and key[0] == "f" and key[1:].isdigit():
         return key.upper()
     return key.capitalize()
+
+
+# Optional Imagine splash. Wordmark is printed as text; the image should be
+# a mark only (no letters — image models garble text).
+CLI_BANNER_IMAGE = ROOT / "src" / "ui" / "claire-cli-banner.png"
+
+
+def _print_iterm_image(path: Path) -> bool:
+    data = path.read_bytes()
+    if not data or len(data) > 2_000_000:
+        return False
+    import base64
+
+    b64 = base64.b64encode(data).decode("ascii")
+    name = path.name.replace("=", "").replace(":", "")
+    sys.stdout.write(
+        f"\033]1337;File=name={name};inline=1;width=80;preserveAspectRatio=1:{b64}\a\n"
+    )
+    sys.stdout.flush()
+    return True
+
+
+def _print_banner_image() -> bool:
+    """Show src/ui/claire-cli-banner.png when present. Silent if missing."""
+    path = CLI_BANNER_IMAGE
+    if not path.is_file():
+        return False
+    try:
+        if os.environ.get("KITTY_WINDOW_ID") and shutil.which("kitty"):
+            result = subprocess.run(
+                ["kitty", "+kitten", "icat", "--align", "left", str(path)],
+                timeout=5,
+            )
+            return result.returncode == 0
+        term = os.environ.get("TERM_PROGRAM", "")
+        if term in ("iTerm.app", "WezTerm") or os.environ.get("ITERM_SESSION_ID"):
+            return _print_iterm_image(path)
+        if shutil.which("chafa"):
+            cols = shutil.get_terminal_size((80, 24)).columns
+            result = subprocess.run(
+                ["chafa", "-s", f"{max(40, cols)}x12", str(path)],
+                timeout=5,
+            )
+            return result.returncode == 0
+    except Exception:
+        return False
+    return False
+
+
+def _conf_display_value(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "(empty)"
+    try:
+        return str(Path(text).expanduser().resolve().relative_to(ROOT))
+    except (OSError, ValueError):
+        root = str(ROOT)
+        if text.startswith(root + os.sep):
+            return text[len(root) + 1 :]
+        return text
+
+
+def cli_conf_lines() -> list:
+    """Show claire.conf values used at launch (defaults if the file is missing)."""
+    exists = CONF_PATH.is_file()
+    header = (
+        f"claire.conf  {CONF_PATH}"
+        if exists
+        else f"claire.conf  not found — using defaults"
+    )
+    vals = file_config()
+    fields = [f for f in CONFIG_FIELDS if f.get("ui") != "hidden"]
+    label_w = max(len(f["key"]) for f in fields)
+    rows = []
+    for field in fields:
+        raw = vals.get(field["key"], field["default"])
+        shown = _conf_display_value(str(raw))
+        if field["key"] == "mic_device" and shown in ("(empty)",):
+            shown = "auto"
+        rows.append(f"{field['key']:<{label_w}}  {shown}")
+    return ["", header, ""] + rows
+
+
+def cli_banner_lines(*, ollama_ok=None):
+    """Name, loaded claire.conf, keys, then conversation."""
+    if ollama_ok is None:
+        ollama_ok = ollama_reachable()
+    wake = AI_NAME.capitalize()
+    lines = [
+        "",
+        f"CLAIRE  v{app_version()}",
+        f"Say {wake} to talk to {LLM_MODEL}",
+    ]
+    if not ollama_ok:
+        lines.append(OLLAMA_DOWN_ERROR)
+    lines.extend(cli_conf_lines())
+    lines.extend(cli_key_block(running=False, recording=False))
+    lines.extend([
+        "",
+        "── conversation ──",
+        "Standby",
+    ])
+    return lines
+
+
+def _print_cli_banner():
+    _print_banner_image()
+    print("\n".join(cli_banner_lines()), flush=True)
 
 
 def tts_speak_text(text: str) -> str:
@@ -1520,8 +1636,218 @@ def is_double_scratch_that(user_text: str) -> bool:
     return len(matches) >= 2 and matches[-2].start() < matches[-1].start()
 
 
-def on_key_press(key):
+OLLAMA_DOWN_ERROR = "Error: Ollama is not running. Start it with: ollama serve"
+
+
+def ollama_reachable() -> bool:
+    try:
+        ollama.list()
+        return True
+    except Exception:
+        return False
+
+
+def ollama_error_text(exc=None) -> str:
+    if exc is None:
+        return OLLAMA_DOWN_ERROR
+    msg = str(exc).lower()
+    name = type(exc).__name__.lower()
+    if (
+        "connect" in msg
+        or "refused" in msg
+        or "11434" in msg
+        or "connection" in name
+    ):
+        return OLLAMA_DOWN_ERROR
+    return f"Error: {type(exc).__name__}: {exc}"
+
+
+def ui_host_port():
+    host = os.environ.get("CLAIRE_UI_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("CLAIRE_UI_PORT", "8742"))
+    except ValueError:
+        port = 8742
+    return host, port
+
+
+def ui_port_in_use(host=None, port=None) -> bool:
+    """True when something is already accepting connections on the UI port."""
+    if host is None or port is None:
+        host, port = ui_host_port()
+    probe = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.4)
+    try:
+        sock.connect((probe, int(port)))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def startup_warnings() -> list:
+    """Configured pieces that are missing. Warnings only — do not block Start."""
+    items = []
+    items.extend(comms.missing())
+    mic = microphone_status(fresh=True)
+    if not mic.get("ok"):
+        items.append(mic.get("hint") or "No microphone found.")
+    return items
+
+
+def format_startup_warnings(items) -> list:
+    if not items:
+        return []
+    lines = [
+        "Warning: for an orderly start-up the following component(s) are necessary:",
+        "",
+    ]
+    for item in items:
+        lines.append(f"  - {item}")
+    lines.append("")
+    lines.append("See README for Ollama, whisper.cpp, and Piper download links.")
+    return lines
+
+
+def print_startup_warnings(items=None):
+    if items is None:
+        items = startup_warnings()
+    lines = format_startup_warnings(items)
+    if not lines:
+        return
+    print("\n".join(lines), flush=True)
+
+
+def _key_token(key: str) -> str:
+    return key.upper()
+
+
+def cli_key_hint(*, running=None, recording=None) -> str:
+    """Keys that work in the current CLI state."""
+    if running is None:
+        running = cli_running
+    if recording is None:
+        recording = bool(getattr(comms, "recording", False))
+
+    def item(key, action):
+        return f"{_key_token(key)} [{action}]"
+
+    if not running:
+        parts = [item(RUN_KEY, "start"), item(QUIT_KEY, "shut down")]
+    elif recording:
+        parts = [
+            item(RECORD_KEY, "stop recording"),
+            item(INTERRUPT_KEY, "interrupt"),
+            item(RUN_KEY, "stop"),
+            item(QUIT_KEY, "shut down"),
+        ]
+    else:
+        parts = [
+            item(RECORD_KEY, "record"),
+            item(INTERRUPT_KEY, "interrupt"),
+            item(RUN_KEY, "stop"),
+            item(QUIT_KEY, "shut down"),
+        ]
+    return " ".join(parts)
+
+
+def cli_key_rule(keys_line: str) -> str:
+    """Dash rule the same width as the keys line, label centered."""
+    label = " key bindings "
+    width = max(len(keys_line), len(label) + 2)
+    inner = width - len(label)
+    left = inner // 2
+    right = inner - left
+    rule = ("-" * left) + label + ("-" * right)
+    if len(rule) < width:
+        rule += "-" * (width - len(rule))
+    return rule
+
+
+def cli_key_block(*, running=None, recording=None) -> list:
+    keys = cli_key_hint(running=running, recording=recording)
+    return [
+        "",
+        cli_key_rule(keys),
+        keys,
+    ]
+
+
+def _print_cli_keys():
+    if not CLI_INTERACTIVE:
+        return
+    keys = cli_key_hint()
+    rule = cli_key_rule(keys)
+    log("\n" + rule)
+    log(keys)
+
+
+def cli_action_for_key(key: str, *, running: bool) -> str:
+    """Map a sshkeyboard name to a CLI action."""
+    if key == QUIT_KEY:
+        return "shutdown"
+    if key == RUN_KEY:
+        return "stop" if running else "start"
+    if key == RECORD_KEY:
+        return "record" if running else "standby"
+    if key == INTERRUPT_KEY:
+        return "interrupt" if running else "ignore"
+    return "ignore"
+
+
+def _cli_stop_loop(*, quiet: bool = False, hint: bool = True):
+    global cli_running
+    if comms.recording:
+        comms.stop_recording()
+    comms.interrupt(silent=quiet)
+    cli_running = False
+    log("Voice loop stopped.")
+    log("Standby")
+    if hint:
+        _print_cli_keys()
+
+
+def _cli_start_loop() -> bool:
+    global cli_running
+    reload_settings()
+    rebind()
+    if not ollama_reachable():
+        log(OLLAMA_DOWN_ERROR)
+        try:
+            stop_listening()
+        except Exception:
+            pass
+        sys.exit(1)
+    warnings = startup_warnings()
+    if warnings:
+        for line in format_startup_warnings(warnings):
+            log(line)
+    cli_running = True
+    log(f"{AI_NAME.capitalize()} is running")
+    _print_cli_keys()
+    return True
+
+
+def _cli_shutdown():
     global stop_requested
+    log("Shutting down...")
+    _cli_stop_loop(quiet=True, hint=False)
+    stop_requested = True
+    try:
+        stop_listening()
+    except Exception:
+        pass
+    log("CLAIRE stopped.")
+
+
+def _cli_leave():
+    """Ctrl+C: same as Shut down."""
+    _cli_shutdown()
+
+
+def on_key_press(key):
     try:
         _on_key_press(key)
     except Exception as exc:
@@ -1566,7 +1892,7 @@ def process_utterance(user_text: str, on_result=None) -> dict:
     """Handle one transcript. `on_result` is called with the UI payload
     before Piper starts so Heard/Reply can paint while speech plays.
     """
-    global stop_requested, memory
+    global memory, cli_running
 
     def emit(result: dict) -> dict:
         if on_result:
@@ -1583,7 +1909,10 @@ def process_utterance(user_text: str, on_result=None) -> dict:
         log("Quit phrase heard — stopping")
         result = emit({"ok": True, "action": "quit", "heard": user_text, "reply": "Goodbye!"})
         comms.speak("Goodbye!")
-        stop_requested = True
+        cli_running = False
+        if CLI_INTERACTIVE:
+            log("Voice loop stopped.")
+            log("Standby")
         return result
 
     addressed, clean = is_addressed(user_text)
@@ -1633,7 +1962,24 @@ def process_utterance(user_text: str, on_result=None) -> dict:
     )
 
     emit({"ok": True, "action": "thinking", "heard": user_text, "message": "Thinking…"})
-    response = comms.generate_with_fillers(prompt)
+    try:
+        response = comms.generate_with_fillers(prompt)
+    except Exception as exc:
+        err = ollama_error_text(exc)
+        log(err)
+        result = emit({
+            "ok": False,
+            "action": "ollama_down",
+            "heard": user_text,
+            "message": err,
+        })
+        if CLI_INTERACTIVE:
+            try:
+                stop_listening()
+            except Exception:
+                pass
+            sys.exit(1)
+        return result
     turn = {"user": user_text, "ai": response}
     memory.append(turn)
     save_turn(turn)
@@ -1650,60 +1996,43 @@ def process_utterance(user_text: str, on_result=None) -> dict:
 
 
 def _on_key_press(key):
-    global stop_requested
-    if key == RECORD_KEY:
+    action = cli_action_for_key(key, running=cli_running)
+    if action == "start":
+        _cli_start_loop()
+    elif action == "stop":
+        _cli_stop_loop()
+    elif action == "shutdown":
+        _cli_shutdown()
+    elif action == "standby":
+        log("Standby")
+    elif action == "record":
         if comms.recording:
-            result = process_utterance(comms.listen())
-            if result.get("action") == "quit":
-                stop_listening()
+            process_utterance(comms.listen())
         else:
             comms.start_recording()
-
-    elif key == INTERRUPT_KEY:
+    elif action == "interrupt":
         comms.interrupt()
-
-    elif key == QUIT_KEY:
-        if not comms.speaking and not comms.recording:
-            log("\nGoodbye!")
-            stop_requested = True
-            stop_listening()
 
 
 def main():
-    if not CLI_INTERACTIVE:
-        print("CLAIRE is controlled from the web UI.")
-        print("  python src/web.py")
-        print("  http://127.0.0.1:8742")
-        print("The text CLI is parked until it matches the web UI.")
-        return
-
-    print(f"Loaded full conversation history: {len(memory)} turns total")
-    print("\n" + "=" * 60)
-    print("LOCAL VOICE AI – FINAL WORKING")
-    print("=" * 60)
-    print(f"   Project: {ROOT}")
-    print(f"   LLM: {comms.llm_model}")
-    print(f"   Voice: {Path(comms.voice_model).name} speaker {comms.voice_speaker}")
-    print(f"   Wake word: {AI_NAME.capitalize()} (detected anywhere)")
-    print(
-        f"   Say '{NEW_SESSION_PHRASE}, {NEW_SESSION_PHRASE}' (twice) to start a new session"
-    )
-    print(f"   {_key_label(RECORD_KEY)}: start/stop recording")
-    print(f"   {_key_label(INTERRUPT_KEY)}: interrupt speech")
-    print(f"   {_key_label(QUIT_KEY)}: exit (only when idle)\n")
-
-    missing = comms.missing()
-    if missing:
-        print("Setup problems:")
-        for item in missing:
-            print(f"  - {item}")
+    global CLI_INTERACTIVE
+    CLI_INTERACTIVE = True
+    host, port = ui_host_port()
+    if ui_port_in_use(host, port):
+        print(
+            f"Warning: port {port} is already in use on {host}. Not starting.",
+            flush=True,
+        )
+        print(f"If the web UI is running, open http://{host}:{port}", flush=True)
         sys.exit(1)
-
-    print(f"👂 Waiting for you to press {RECORD_KEY.upper()}...")
+    _print_cli_banner()
+    if not ollama_reachable():
+        sys.exit(1)
+    print_startup_warnings()
     try:
         listen_keyboard(on_press=on_key_press)
     except KeyboardInterrupt:
-        print("\nGoodbye!")
+        _cli_leave()
 
 
 if __name__ == "__main__":
