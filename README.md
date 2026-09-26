@@ -21,13 +21,14 @@ Current release: **0.2.2** (see `version` in `pyproject.toml`). The UI header an
 
 ## Architecture
 
-Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). The web UI is a control panel; `comms.py` is the voice loop.
+Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). Pick one control plane: the **web UI** (default, with Admin) or the **keyboard CLI**. Both drive the same voice loop in `comms.py` and the same `claire.conf`.
 
 ```mermaid
 flowchart TB
-  subgraph ui [Control plane]
+  subgraph ui [Control plane — pick one]
     Browser["Browser UI\n127.0.0.1:8742"]
     Web["src/web.py\nFastAPI"]
+    CLI["Keyboard CLI\npython src/comms.py"]
     Browser -->|Start / Stop / Record / Admin| Web
   end
 
@@ -57,7 +58,9 @@ flowchart TB
   end
 
   Web --> loop
+  CLI -->|Space / Tab / F12 / Esc| loop
   Conf --> Web
+  Conf --> CLI
   Conf --> loop
   Phrases --> Fill
   Phrases --> Wake
@@ -70,7 +73,7 @@ flowchart TB
   LLM <--> Ollama
 ```
 
-**Turn flow:** Record → Whisper transcript → fuzzy wake word → if missing, Piper speaks a canned line; if present, Ollama generates (fillers may speak while you wait) → Piper speaks the reply → turn is appended to `memory/`. Admin can edit config and phrases while running; those files apply on the next **Stop / Start**.
+**Turn flow:** Record → Whisper transcript → fuzzy wake word → if missing, Piper speaks a canned line; if present, Ollama generates (fillers may speak while you wait) → Piper speaks the reply → turn is appended to `memory/`. Admin can edit config and phrases while running; those files apply on the next **Stop / Start**. The CLI has no Admin: edit `claire.conf`, then Start.
 
 ## Credits
 
