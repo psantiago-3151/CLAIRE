@@ -13,7 +13,7 @@ A fully configurable voice layer for local LLMs (Ollama — Llama, Qwen, Mistral
 | **R** | **Runtime** — Start/Stop loop, memory, fillers, wake word |
 | **E** | **Engine** — the plumbing that ties those pieces together |
 
-macOS and Linux. Default control surface: web UI at [http://127.0.0.1:8742](http://127.0.0.1:8742). Optional keyboard CLI: `python src/comms.py`. Windows is not supported yet.
+macOS and Linux. You run CLAIRE in the **web UI** at [http://127.0.0.1:8742](http://127.0.0.1:8742) — Start, Record, Admin, Shut down. A keyboard CLI is available as an add-on. Windows is not supported yet.
 
 **Linux is complete and tested** on Fedora / Nobara: web UI voice loop (Whisper in, Piper out, local Ollama), wake word, interrupt, Stop vs Shut down. macOS was the original path. The clone is still plumbing — you install Ollama, `whisper-cli`, and models.
 
@@ -21,14 +21,14 @@ Current release: **0.2.2** (see `version` in `pyproject.toml`). The UI header an
 
 ## Architecture
 
-Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). Pick one control plane: the **web UI** (default, with Admin) or the **keyboard CLI**. Both drive the same voice loop in `comms.py` and the same `claire.conf`.
+Nothing leaves the machine except what you already run locally (Ollama on `127.0.0.1`). The product is the **web UI** (`python src/web.py`): browser on `127.0.0.1:8742`, Admin, Start / Stop / Record. The keyboard CLI is an add-on for the same voice loop and `claire.conf`. Pick one — two instances are not supported.
 
 ```mermaid
 flowchart TB
   subgraph ui [Control plane — pick one]
-    Browser["Browser UI\n127.0.0.1:8742"]
+    Browser["Web UI — default\n127.0.0.1:8742"]
     Web["src/web.py\nFastAPI"]
-    CLI["Keyboard CLI\npython src/comms.py"]
+    CLI["Keyboard CLI — add-on\npython src/comms.py"]
     Browser -->|Start / Stop / Record / Admin| Web
   end
 
@@ -73,7 +73,7 @@ flowchart TB
   LLM <--> Ollama
 ```
 
-**Turn flow:** Record → Whisper transcript → fuzzy wake word → if missing, Piper speaks a canned line; if present, Ollama generates (fillers may speak while you wait) → Piper speaks the reply → turn is appended to `memory/`. Admin can edit config and phrases while running; those files apply on the next **Stop / Start**. The CLI has no Admin: edit `claire.conf`, then Start.
+**Turn flow:** Record → Whisper transcript → fuzzy wake word → if missing, Piper speaks a canned line; if present, Ollama generates (fillers may speak while you wait) → Piper speaks the reply → turn is appended to `memory/`. In the web UI, Admin can edit config and phrases while running; those files apply on the next **Stop / Start**.
 
 ## Credits
 
@@ -200,6 +200,8 @@ Add your user to the `audio` group if capture is silent, then log out and back i
 
 ## Run
 
+The usual way to run CLAIRE is the **web UI**.
+
 Terminal 1:
 
 ```bash
@@ -213,43 +215,32 @@ source venv/bin/activate
 python src/web.py
 ```
 
-Open [http://127.0.0.1:8742](http://127.0.0.1:8742). Hamburger → **Admin settings** for models, paths, and canned speech. **Start**, then **Record** / **Stop recording**. **Interrupt** stops speech.
+Open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-## Keyboard CLI
+- Web Menu → **Admin settings** for models, paths, microphone, and canned speech. The UI writes `claire.conf`.
+- **Start**, then **Record** / **Stop recording**. **Interrupt** stops speech.
+- Say the **wake word** plus your request.
+- **scratch that, scratch that** starts a new memory session.
+- Spoken **exit** / **goodbye** / **shut down** is **Stop** (voice loop off; the page stays up).
+- Web Menu **Shut down** exits the UI process.
+- If port **8742** is already in use, the process does not start.
 
-Same voice loop and the same `claire.conf` as the web UI. No Admin, phrase editor, or badges — edit the file or use the browser for settings, then **Start**. Do not run the CLI while the web UI is already bound to port 8742.
+### Optional: keyboard CLI
 
-Terminal 1: `ollama serve` (required; the CLI **exits** if Ollama is down).
-
-Terminal 2:
+Add-on for the same loop and `claire.conf`. No Admin — change settings in the web UI (or the file), then Start. Do not run this while the web UI is up.
 
 ```bash
 source venv/bin/activate
 python src/comms.py
 ```
 
-On launch it prints the loaded `claire.conf`, then a two-line **key bindings** menu. **Space** Start, then talk with the wake word.
-
-| Key | Action |
-|---|---|
-| Space | **Start** / **Stop** (voice loop) |
-| Tab | **Record** (only while running) |
-| F12 | **Interrupt** |
-| Esc or Ctrl+C | **Shut down** (exits the process) |
-| Spoken **exit** / **goodbye** / **shut down** | **Stop** (loop off; CLI stays in Standby) |
-
-Bindings reprint on Start/Stop, not after each reply. Missing Whisper / Piper / mic paths are **warnings**. If port 8742 is in use, the CLI does not start.
+Space Start/Stop · Tab Record · F12 Interrupt · Esc Shut down. Spoken goodbye is Stop. If Ollama is not running, the CLI prints an error and **exits**.
 
 Offline check (no mic, no generate):
 
 ```bash
 python scripts/smoke_test.py
 ```
-
-- Say the **wake word** plus your request  
-- **scratch that, scratch that** starts a new memory session  
-- Spoken **exit** / **goodbye** / **shut down** is the same as **Stop** (voice loop off; UI stays up)  
-- Web Menu **Shut down** exits the UI process  
 
 ## Config
 
